@@ -1,0 +1,55 @@
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, bail};
+use serde::Deserialize;
+
+const MANIFEST_FILE_NAME: &str = "micropython-rs.toml";
+
+#[derive(Debug, Deserialize)]
+pub struct Manifest {
+    pub port: Option<Port>,
+    pub micropython: Option<MicroPython>,
+    #[serde(default, rename = "crate")]
+    pub crates: Vec<Crate>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Port {
+    pub path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MicroPython {
+    pub path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Crate {
+    pub path: PathBuf,
+}
+
+pub fn find_manifest(dir: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    let mut dir = dir.unwrap_or_else(|| std::env::current_dir().unwrap());
+    assert!(dir.is_absolute());
+
+    loop {
+        let path = dir.join(MANIFEST_FILE_NAME);
+        if std::fs::exists(&path)
+            .with_context(|| format!("couldn't check existence of `{}`", path.display()))?
+        {
+            return Ok(path);
+        }
+
+        if !dir.pop() {
+            bail!("couldn't find `{MANIFEST_FILE_NAME}`");
+        }
+    }
+}
+
+pub fn parse_manifest(path: &Path) -> anyhow::Result<Manifest> {
+    let source =
+        std::fs::read(&path).with_context(|| format!("couldn't read `{}`", path.display()))?;
+    let manifest = toml::from_slice(&source)
+        .with_context(|| format!("couldn't parse manifest `{}`", path.display()))?;
+    Ok(manifest)
+}
