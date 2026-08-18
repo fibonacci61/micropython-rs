@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use blake3::Hash;
 use regex::bytes::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::generate::ScanItem;
+use crate::generate::{ScanItem, cache_path};
 
 #[derive(Serialize, Deserialize)]
 pub struct RustCacheItem {
@@ -70,11 +71,11 @@ pub fn cache_rust(
     item: ScanItem,
     cache_path: &Path,
     src_path: PathBuf,
-    src_hash: String,
+    src_hash: Hash,
 ) -> anyhow::Result<ScanItem> {
     let cache_item = RustCacheItem {
         src_path,
-        src_hash,
+        src_hash: src_hash.to_hex().to_string(),
         // temporarily moving values out of `item`
         qstrs: item.qstrs,
         moduledefs: item.moduledefs,
@@ -98,9 +99,17 @@ pub fn cache_rust(
     })
 }
 
-pub fn scan_rust_cached(src_path: &Path, cache_dir: &Path) -> anyhow::Result<ScanItem> {
-    let hash = blake3::hash(src_path.as_os_str().as_encoded_bytes());
-    let cache_path = cache_dir.join(format!("{}.json", hash.to_hex()));
+pub fn is_cache_valid(cache: &RustCacheItem, src_hash: Hash) -> anyhow::Result<bool> {
+    let cache_src_hash = Hash::from_hex(&cache.src_hash).context("couldn't decode hash")?;
+    Ok(cache_src_hash == src_hash)
+}
+
+pub fn scan_rust_cached(
+    src_path: &Path,
+    regexps: &Regexps,
+    cache_dir: &Path,
+) -> anyhow::Result<ScanItem> {
+    let cache_path = cache_path(cache_dir, src_path);
 
     let cache = match std::fs::read(&cache_path) {
         Ok(v) => Some(
@@ -116,30 +125,19 @@ pub fn scan_rust_cached(src_path: &Path, cache_dir: &Path) -> anyhow::Result<Sca
     let src_contents = std::fs::read(src_path)
         .with_context(|| format!("couldn't read Rust source `{}`", src_path.display()))?;
     let src_hash = blake3::hash(&src_contents);
-    let src_hash_string = src_hash.to_hex().to_string();
 
-    let regexps = Regexps::new();
-
-    let item = match cache {
-        Some(cache) => {
-            if cache.src_hash != src_hash_string {
-                let item = scan_rust(&src_contents, &regexps).with_context(|| {
-                    format!("couldn't scan Rust source `{}`", src_path.display())
-                })?;
-                cache_rust(item, &cache_path, PathBuf::from(src_path), src_hash_string)?
-            } else {
-                ScanItem {
-                    qstrs: cache.qstrs,
-                    moduledefs: cache.moduledefs,
-                    root_pointers: cache.root_pointers,
-                }
-            }
+    let item = if let Some(cache) = cache
+        && is_cache_valid(&cache, src_hash)?
+    {
+        ScanItem {
+            qstrs: cache.qstrs,
+            moduledefs: cache.moduledefs,
+            root_pointers: cache.root_pointers,
         }
-        None => {
-            let item = scan_rust(&src_contents, &regexps)
-                .with_context(|| format!("couldn't scan Rust source `{}`", src_path.display()))?;
-            cache_rust(item, &cache_path, PathBuf::from(src_path), src_hash_string)?
-        }
+    } else {
+        let item = scan_rust(&src_contents, &regexps)
+            .with_context(|| format!("couldn't scan Rust source `{}`", src_path.display()))?;
+        cache_rust(item, &cache_path, PathBuf::from(src_path), src_hash)?
     };
 
     Ok(item)

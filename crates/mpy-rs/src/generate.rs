@@ -1,6 +1,7 @@
 pub mod c;
 pub mod rust;
 
+use std::collections::HashMap;
 use std::process::Command;
 use std::{ffi::OsStr, path::Path, path::PathBuf};
 
@@ -8,6 +9,7 @@ use anyhow::Context;
 use anyhow::bail;
 use walkdir::WalkDir;
 
+use crate::generate::c::scan_c_cached;
 use crate::generate::rust::scan_rust_cached;
 use crate::manifest::{Crate, MicroPython, find_manifest, parse_manifest};
 
@@ -101,6 +103,11 @@ pub struct ScanItem {
     pub root_pointers: Vec<String>,
 }
 
+pub fn cache_path(cache_dir: &Path, absolute_path: &Path) -> PathBuf {
+    let hash = blake3::hash(absolute_path.as_os_str().as_encoded_bytes());
+    cache_dir.join(format!("{}.json", hash.to_hex()))
+}
+
 pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
     let manifest_paths = find_manifest(dir)?;
     let manifest = parse_manifest(&manifest_paths.path)?;
@@ -126,8 +133,30 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
     let cache_dir = header_dir.join("cache");
     std::fs::create_dir_all(&cache_dir)
         .with_context(|| format!("couldn't create directory `{}`", cache_dir.display()))?;
+
+    let rust_regexps = rust::Regexps::new();
     for rust_src in project_search.rust_srcs.iter() {
-        items.push(scan_rust_cached(rust_src, &cache_dir)?);
+        items.push(scan_rust_cached(rust_src, &rust_regexps, &cache_dir)?);
+    }
+
+    let port_dir = manifest.port.unwrap().path;
+    let c_regexps = c::Regexps::new();
+    let mut hashes = HashMap::new();
+
+    for c_src in project_search
+        .c_srcs
+        .into_iter()
+        .chain([py_dir.join("mpconfig.h"), port_dir.join("mpconfigport.h")])
+    {
+        items.push(scan_c_cached(
+            c_src,
+            port_dir.clone(),
+            mp_dir.clone(),
+            header_dir.clone(),
+            &c_regexps,
+            &cache_dir,
+            &mut hashes,
+        )?);
     }
 
     Ok(())
