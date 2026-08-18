@@ -231,7 +231,7 @@ pub fn gen_moduledefs(py_dir: &Path, genhdr_dir: &Path, items: &[ScanItem]) -> a
 
     let moduledefs_h_path = genhdr_dir.join("moduledefs.h");
     let moduledefs_h = File::create(&moduledefs_h_path)
-        .with_context(|| format!("couldn't open `{}`", moduledefs_collected_path.display()))?;
+        .with_context(|| format!("couldn't open `{}`", moduledefs_h_path.display()))?;
 
     let makemoduledefs_path = py_dir.join("makemoduledefs.py");
     let status = Command::new("python3")
@@ -243,6 +243,19 @@ pub fn gen_moduledefs(py_dir: &Path, genhdr_dir: &Path, items: &[ScanItem]) -> a
 
     if !status.success() {
         bail!("`python3` failed [{}]", status);
+    }
+
+    Ok(())
+}
+
+pub fn gen_root_pointers(genhdr_dir: &Path, items: &[ScanItem]) -> anyhow::Result<()> {
+    let root_pointers_h_path = genhdr_dir.join("root_pointers.h");
+    let mut root_pointers_h = File::create(&root_pointers_h_path)
+        .with_context(|| format!("couldn't open `{}`", root_pointers_h_path.display()))?;
+
+    for root_pointer in items.iter().flat_map(|item| item.root_pointers.iter()) {
+        writeln!(root_pointers_h, "{root_pointer};")
+            .with_context(|| format!("couldn't write to `{}`", root_pointers_h_path.display()))?;
     }
 
     Ok(())
@@ -322,6 +335,7 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
 
     gen_qstrdefs(&py_dir, &genhdr_dir, port_dir, mp_dir, header_dir, &items)?;
     gen_moduledefs(&py_dir, &genhdr_dir, &items)?;
+    gen_root_pointers(&genhdr_dir, &items)?;
 
     Ok(())
 }
