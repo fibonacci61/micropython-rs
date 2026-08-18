@@ -143,15 +143,13 @@ pub fn gen_qstrdefs(
         }
     }
 
-    for item in items.iter() {
-        for qstr in item.qstrs.iter() {
-            writeln!(collected_qstrdefs_quoted, "\"Q({qstr})\"").with_context(|| {
-                format!(
-                    "couldn't write to `{}`",
-                    collected_qstrdefs_quoted.path().display()
-                )
-            })?;
-        }
+    for qstr in items.iter().flat_map(|item| item.qstrs.iter()) {
+        writeln!(collected_qstrdefs_quoted, "\"Q({qstr})\"").with_context(|| {
+            format!(
+                "couldn't write to `{}`",
+                collected_qstrdefs_quoted.path().display()
+            )
+        })?;
     }
 
     collected_qstrdefs_quoted.flush()?;
@@ -212,6 +210,39 @@ pub fn gen_qstrdefs(
 
     if !status.success() {
         bail!("`{}` failed [{status}]", makeqstrdata_path.display());
+    }
+
+    Ok(())
+}
+
+pub fn gen_moduledefs(py_dir: &Path, genhdr_dir: &Path, items: &[ScanItem]) -> anyhow::Result<()> {
+    let moduledefs_collected_path = genhdr_dir.join("moduledefs.collected");
+    let mut moduledefs_collected = File::create(&moduledefs_collected_path)
+        .with_context(|| format!("couldn't open `{}`", moduledefs_collected_path.display()))?;
+
+    for moduledef in items.iter().flat_map(|item| item.moduledefs.iter()) {
+        writeln!(moduledefs_collected, "{moduledef}").with_context(|| {
+            format!(
+                "couldn't write to `{}`",
+                moduledefs_collected_path.display()
+            )
+        })?;
+    }
+
+    let moduledefs_h_path = genhdr_dir.join("moduledefs.h");
+    let moduledefs_h = File::create(&moduledefs_h_path)
+        .with_context(|| format!("couldn't open `{}`", moduledefs_collected_path.display()))?;
+
+    let makemoduledefs_path = py_dir.join("makemoduledefs.py");
+    let status = Command::new("python3")
+        .arg(&makemoduledefs_path)
+        .arg(moduledefs_collected_path)
+        .stdout(Stdio::from(moduledefs_h))
+        .status()
+        .context("couldn't execute `python3`")?;
+
+    if !status.success() {
+        bail!("`python3` failed [{}]", status);
     }
 
     Ok(())
@@ -290,6 +321,7 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
     }
 
     gen_qstrdefs(&py_dir, &genhdr_dir, port_dir, mp_dir, header_dir, &items)?;
+    gen_moduledefs(&py_dir, &genhdr_dir, &items)?;
 
     Ok(())
 }
