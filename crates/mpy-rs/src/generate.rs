@@ -11,7 +11,7 @@ use walkdir::WalkDir;
 
 use crate::generate::c::scan_c_cached;
 use crate::generate::rust::scan_rust_cached;
-use crate::manifest::{Crate, MicroPython, find_manifest, parse_manifest};
+use crate::manifest::{Crate, MicroPython, Port, find_manifest, parse_manifest};
 
 pub fn gen_version_header(py_dir: &Path, genhdr_dir: &Path) -> anyhow::Result<()> {
     let makeversionhdr_path = py_dir.join("makeversionhdr.py");
@@ -24,7 +24,7 @@ pub fn gen_version_header(py_dir: &Path, genhdr_dir: &Path) -> anyhow::Result<()
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!(
-            "`{}` failed with status {}: {}",
+            "`{}` failed with {}: {}",
             makeversionhdr_path.display(),
             output.status,
             stderr.trim()
@@ -67,13 +67,7 @@ pub fn search_project(
 
     // cr7 suiii
     for cr8 in crates {
-        let absolute_crate_path = if cr8.path.is_absolute() {
-            PathBuf::from(&cr8.path)
-        } else {
-            manifest_dir.join(&cr8.path)
-        }
-        // need to canonicalize to get rid of any "."/".." in cr8.path
-        .canonicalize()?;
+        let absolute_crate_path = manifest_dir.join(&cr8.path).canonicalize()?;
 
         let src_dir = absolute_crate_path.join("src");
         for entry in WalkDir::new(&src_dir).into_iter() {
@@ -111,12 +105,23 @@ pub fn cache_path(cache_dir: &Path, absolute_path: &Path) -> PathBuf {
 pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
     let manifest_paths = find_manifest(dir)?;
     let manifest = parse_manifest(&manifest_paths.path)?;
+
     let Some(MicroPython { path: mp_dir }) = manifest.micropython else {
         bail!(
-            "`[micropython]` is required in `{}`",
+            "`[micropython]` is required by `mpy-rs generate` in `{}`",
             manifest_paths.path.display()
         );
     };
+    let mp_dir = manifest_paths.dir.join(mp_dir).canonicalize()?;
+
+    let Some(Port { path: port_dir }) = manifest.port else {
+        bail!(
+            "`[port]` is required by `mpy-rs generate` in `{}`",
+            manifest_paths.path.display()
+        );
+    };
+    let port_dir = manifest_paths.dir.join(port_dir).canonicalize()?;
+
     let py_dir = mp_dir.join("py");
 
     let header_dir = manifest_paths.dir.join("micropython-rs/generated");
@@ -139,7 +144,6 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
         items.push(scan_rust_cached(rust_src, &rust_regexps, &cache_dir)?);
     }
 
-    let port_dir = manifest.port.unwrap().path;
     let c_regexps = c::Regexps::new();
     let mut hashes = HashMap::new();
 
