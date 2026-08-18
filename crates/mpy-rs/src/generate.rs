@@ -105,6 +105,118 @@ pub fn cache_path(cache_dir: &Path, absolute_path: &Path) -> PathBuf {
     cache_dir.join(format!("{}.json", hash.to_hex()))
 }
 
+pub fn gen_qstrdefs(
+    py_dir: &Path,
+    genhdr_dir: &Path,
+    port_dir: PathBuf,
+    mp_dir: PathBuf,
+    header_dir: PathBuf,
+    items: &[ScanItem],
+) -> anyhow::Result<()> {
+    let mut collected_qstrdefs_quoted = tempfile::Builder::new()
+        .suffix(".h")
+        .tempfile()
+        .context("couldn't create temporary file")?;
+    let q_re = Regex::new(r"Q\(.*\)").unwrap();
+
+    {
+        let qstrdefs_h_path = py_dir.join("qstrdefs.h");
+        let qstrdefs_h = File::open(&qstrdefs_h_path)
+            .with_context(|| format!("couldn't open `{}`", qstrdefs_h_path.display()))?;
+        let reader = BufReader::new(qstrdefs_h);
+
+        for line in reader.lines() {
+            let line =
+                line.with_context(|| format!("couldn't read `{}`", qstrdefs_h_path.display()))?;
+
+            if q_re.is_match(line.as_bytes()) {
+                writeln!(collected_qstrdefs_quoted, "\"{line}\"")
+            } else {
+                writeln!(collected_qstrdefs_quoted, "{line}")
+            }
+            .with_context(|| {
+                format!(
+                    "couldn't write to `{}`",
+                    collected_qstrdefs_quoted.path().display()
+                )
+            })?;
+        }
+    }
+
+    for item in items.iter() {
+        for qstr in item.qstrs.iter() {
+            writeln!(collected_qstrdefs_quoted, "\"Q({qstr})\"").with_context(|| {
+                format!(
+                    "couldn't write to `{}`",
+                    collected_qstrdefs_quoted.path().display()
+                )
+            })?;
+        }
+    }
+
+    collected_qstrdefs_quoted.flush()?;
+
+    let pp_context = PreprocessorContext::new(
+        collected_qstrdefs_quoted.path().into(),
+        port_dir,
+        mp_dir,
+        header_dir,
+    );
+    let mut clang = pp_context
+        .clang_command()
+        .stdout(Stdio::piped())
+        .spawn()
+        .context("couldn't spawn `clang`")?;
+
+    let clang_stdout = clang.stdout.take().unwrap();
+    let clang_reader = BufReader::new(clang_stdout);
+
+    let qstrdefs_preprocessed_h_path = genhdr_dir.join("qstrdefs.preprocessed.h");
+    let qstrdefs_preprocessed_h = File::create(&qstrdefs_preprocessed_h_path)
+        .with_context(|| format!("couldn't open `{}`", qstrdefs_preprocessed_h_path.display()))?;
+    let mut writer = BufWriter::new(qstrdefs_preprocessed_h);
+
+    for line in clang_reader.lines() {
+        let line = line?;
+
+        if q_re.is_match(line.as_bytes()) {
+            let line = line.strip_circumfix('"', '"').unwrap();
+            writeln!(writer, "{line}")
+        } else {
+            writeln!(writer, "{line}")
+        }
+        .with_context(|| {
+            format!(
+                "couldn't write to `{}`",
+                qstrdefs_preprocessed_h_path.display()
+            )
+        })?;
+    }
+
+    let status = clang.wait()?;
+    if !status.success() {
+        bail!("`clang` failed [{status}]");
+    }
+
+    let qstrdefs_generated_h_path = genhdr_dir.join("qstrdefs.generated.h");
+    let qstrdefs_generated_h = File::create(&qstrdefs_generated_h_path)
+        .with_context(|| format!("couldn't open `{}`", qstrdefs_generated_h_path.display()))?;
+
+    let makeqstrdata_path = py_dir.join("makeqstrdata.py");
+    let status = Command::new("python3")
+        .arg(&makeqstrdata_path)
+        .arg(&qstrdefs_preprocessed_h_path)
+        .stdout(Stdio::from(qstrdefs_generated_h))
+        .status()
+        .context("couldn't execute `python3`")?;
+
+    if !status.success() {
+        bail!("`{}` failed [{status}]", makeqstrdata_path.display());
+    }
+
+    Ok(())
+}
+
 pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
     let manifest_paths = find_manifest(dir)?;
     let manifest = parse_manifest(&manifest_paths.path)?;
@@ -177,106 +289,7 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let mut collected_qstrdefs_quoted = tempfile::Builder::new()
-        .suffix(".h")
-        .tempfile()
-        .context("couldn't create temporary file")?;
-    let q_re = Regex::new(r"Q\(.*\)").unwrap();
-
-    {
-        let qstrdefs_h_path = py_dir.join("qstrdefs.h");
-        let qstrdefs_h = File::open(&qstrdefs_h_path)
-            .with_context(|| format!("couldn't open `{}`", qstrdefs_h_path.display()))?;
-        let reader = BufReader::new(qstrdefs_h);
-
-        for line in reader.lines() {
-            let line =
-                line.with_context(|| format!("couldn't read `{}`", qstrdefs_h_path.display()))?;
-
-            if q_re.is_match(line.as_bytes()) {
-                writeln!(collected_qstrdefs_quoted, "\"{line}\"")
-            } else {
-                writeln!(collected_qstrdefs_quoted, "{line}")
-            }
-            .with_context(|| {
-                format!(
-                    "couldn't write to `{}`",
-                    collected_qstrdefs_quoted.path().display()
-                )
-            })?;
-        }
-    }
-
-    for item in items.iter() {
-        for qstr in item.qstrs.iter() {
-            writeln!(collected_qstrdefs_quoted, "\"Q({qstr})\"").with_context(|| {
-                format!(
-                    "couldn't write to `{}`",
-                    collected_qstrdefs_quoted.path().display()
-                )
-            })?;
-        }
-    }
-
-    collected_qstrdefs_quoted.flush()?;
-
-    let pp_context = PreprocessorContext::new(
-        collected_qstrdefs_quoted.path().into(),
-        port_dir.clone(),
-        mp_dir.clone(),
-        header_dir.clone(),
-    );
-    let mut clang = pp_context
-        .clang_command()
-        .stdout(Stdio::piped())
-        .spawn()
-        .context("couldn't spawn `clang`")?;
-
-    let clang_stdout = clang.stdout.take().unwrap();
-    let clang_reader = BufReader::new(clang_stdout);
-
-    let qstrdefs_preprocessed_h_path = genhdr_dir.join("qstrdefs.preprocessed.h");
-    let qstrdefs_preprocessed_h = File::create(&qstrdefs_preprocessed_h_path)
-        .with_context(|| format!("couldn't open `{}`", qstrdefs_preprocessed_h_path.display()))?;
-    let mut writer = BufWriter::new(qstrdefs_preprocessed_h);
-
-    for line in clang_reader.lines() {
-        let line = line?;
-
-        if q_re.is_match(line.as_bytes()) {
-            let line = line.strip_circumfix('"', '"').unwrap();
-            writeln!(writer, "{line}")
-        } else {
-            writeln!(writer, "{line}")
-        }
-        .with_context(|| {
-            format!(
-                "couldn't write to `{}`",
-                qstrdefs_preprocessed_h_path.display()
-            )
-        })?;
-    }
-
-    let status = clang.wait()?;
-    if !status.success() {
-        bail!("`clang` failed [{status}]");
-    }
-
-    let qstrdefs_generated_h_path = genhdr_dir.join("qstrdefs.generated.h");
-    let qstrdefs_generated_h = File::create(&qstrdefs_generated_h_path)
-        .with_context(|| format!("couldn't open `{}`", qstrdefs_generated_h_path.display()))?;
-
-    let makeqstrdata_path = py_dir.join("makeqstrdata.py");
-    let status = Command::new("python3")
-        .arg(&makeqstrdata_path)
-        .arg(&qstrdefs_preprocessed_h_path)
-        .stdout(Stdio::from(qstrdefs_generated_h))
-        .status()
-        .context("couldn't execute `python3`")?;
-
-    if !status.success() {
-        bail!("`{}` failed [{status}]", makeqstrdata_path.display());
-    }
+    gen_qstrdefs(&py_dir, &genhdr_dir, port_dir, mp_dir, header_dir, &items)?;
 
     Ok(())
 }
