@@ -22,7 +22,7 @@ pub fn gen_version_header(py_dir: &Path, genhdr_dir: &Path) -> anyhow::Result<()
         .arg(&makeversionhdr_path)
         .arg(genhdr_dir.join("mpversion.h"))
         .output()
-        .context("couldn't execute python3")?;
+        .context("couldn't execute `python3`")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -260,6 +260,22 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
     let status = clang.wait()?;
     if !status.success() {
         bail!("`clang` failed [{status}]");
+    }
+
+    let qstrdefs_generated_h_path = genhdr_dir.join("qstrdefs.generated.h");
+    let qstrdefs_generated_h = File::create(&qstrdefs_generated_h_path)
+        .with_context(|| format!("couldn't open `{}`", qstrdefs_generated_h_path.display()))?;
+
+    let makeqstrdata_path = py_dir.join("makeqstrdata.py");
+    let status = Command::new("python3")
+        .arg(&makeqstrdata_path)
+        .arg(&qstrdefs_preprocessed_h_path)
+        .stdout(Stdio::from(qstrdefs_generated_h))
+        .status()
+        .context("couldn't execute `python3`")?;
+
+    if !status.success() {
+        bail!("`{}` failed [{status}]", makeqstrdata_path.display());
     }
 
     Ok(())
