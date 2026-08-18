@@ -114,7 +114,7 @@ pub fn scan_c(
 
     if !output.status.success() {
         bail!(
-            "`clang` failed with status code {}: {}",
+            "`clang` failed [{}]: {}",
             output.status,
             String::from_utf8_lossy_owned(output.stderr)
         );

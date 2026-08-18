@@ -24,7 +24,7 @@ pub fn gen_version_header(py_dir: &Path, genhdr_dir: &Path) -> anyhow::Result<()
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!(
-            "`{}` failed with {}: {}",
+            "`{}` failed [{}]: {}",
             makeversionhdr_path.display(),
             output.status,
             stderr.trim()
