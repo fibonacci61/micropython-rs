@@ -138,10 +138,16 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
     let cache_dir = header_dir.join("cache");
     std::fs::create_dir_all(&cache_dir)
         .with_context(|| format!("couldn't create directory `{}`", cache_dir.display()))?;
+    let mut cache_miss = false;
 
     let rust_regexps = rust::Regexps::new();
     for rust_src in project_search.rust_srcs.iter() {
-        items.push(scan_rust_cached(rust_src, &rust_regexps, &cache_dir)?);
+        items.push(scan_rust_cached(
+            rust_src,
+            &rust_regexps,
+            &cache_dir,
+            &mut cache_miss,
+        )?);
     }
 
     let c_regexps = c::Regexps::new();
@@ -159,8 +165,13 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
             header_dir.clone(),
             &c_regexps,
             &cache_dir,
+            &mut cache_miss,
             &mut hashes,
         )?);
+    }
+
+    if !cache_miss {
+        return Ok(());
     }
 
     Ok(())

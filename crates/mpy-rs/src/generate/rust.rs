@@ -108,6 +108,7 @@ pub fn scan_rust_cached(
     src_path: &Path,
     regexps: &Regexps,
     cache_dir: &Path,
+    cache_miss: &mut bool,
 ) -> anyhow::Result<ScanItem> {
     let cache_path = cache_path(cache_dir, src_path);
 
@@ -135,6 +136,7 @@ pub fn scan_rust_cached(
             root_pointers: cache.root_pointers,
         }
     } else {
+        *cache_miss = true;
         let item = scan_rust(&src_contents, &regexps)
             .with_context(|| format!("couldn't scan Rust source `{}`", src_path.display()))?;
         cache_rust(item, &cache_path, PathBuf::from(src_path), src_hash)?
