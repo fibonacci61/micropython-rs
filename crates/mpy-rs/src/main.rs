@@ -1,3 +1,4 @@
+mod generate;
 mod install;
 mod manifest;
 
@@ -6,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 
-use crate::install::install;
+use crate::{generate::generate, install::install};
 
 #[derive(Parser)]
 struct Cli {
@@ -43,10 +44,7 @@ fn main() -> anyhow::Result<()> {
         })?;
 
     match cli.command {
-        Command::Install => {
-            install(dir)?;
-        }
-        Command::Generate => {}
+        Command::Install => install(dir),
+        Command::Generate => generate(dir),
     }
-    Ok(())
 }

@@ -28,7 +28,13 @@ pub struct Crate {
     pub path: PathBuf,
 }
 
-pub fn find_manifest(dir: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestPaths {
+    pub path: PathBuf,
+    pub dir: PathBuf,
+}
+
+pub fn find_manifest(dir: Option<PathBuf>) -> anyhow::Result<ManifestPaths> {
     let mut dir = dir.unwrap_or_else(|| std::env::current_dir().unwrap());
     assert!(dir.is_absolute());
 
@@ -37,7 +43,7 @@ pub fn find_manifest(dir: Option<PathBuf>) -> anyhow::Result<PathBuf> {
         if std::fs::exists(&path)
             .with_context(|| format!("couldn't check existence of `{}`", path.display()))?
         {
-            return Ok(path);
+            return Ok(ManifestPaths { path, dir });
         }
 
         if !dir.pop() {
@@ -48,7 +54,7 @@ pub fn find_manifest(dir: Option<PathBuf>) -> anyhow::Result<PathBuf> {
 
 pub fn parse_manifest(path: &Path) -> anyhow::Result<Manifest> {
     let source =
-        std::fs::read(&path).with_context(|| format!("couldn't read `{}`", path.display()))?;
+        std::fs::read(path).with_context(|| format!("couldn't read `{}`", path.display()))?;
     let manifest = toml::from_slice(&source)
         .with_context(|| format!("couldn't parse manifest `{}`", path.display()))?;
     Ok(manifest)
