@@ -271,7 +271,11 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
             manifest_paths.path.display()
         );
     };
-    let mp_dir = manifest_paths.dir.join(mp_dir).canonicalize()?;
+    let mp_dir = manifest_paths
+        .dir
+        .join(&mp_dir)
+        .canonicalize()
+        .with_context(|| format!("micropython directory `{}` not available", mp_dir.display()))?;
 
     let Some(Port { path: port_dir }) = manifest.port else {
         bail!(
@@ -279,7 +283,11 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
             manifest_paths.path.display()
         );
     };
-    let port_dir = manifest_paths.dir.join(port_dir).canonicalize()?;
+    let port_dir = manifest_paths
+        .dir
+        .join(&port_dir)
+        .canonicalize()
+        .with_context(|| format!("port directory `{}` not available", port_dir.display()))?;
 
     let py_dir = mp_dir.join("py");
 
