@@ -1,1 +1,3 @@
 /target
+/embedded/crates/*/target
+/embedded/crates/*/Cargo.lock
