@@ -13,7 +13,9 @@ use crate::misc::{byte, mp_rom_error_text_t, vstr_t};
 #[cfg(micropython = "MICROPY_PY_BUILTINS_FLOAT")]
 use crate::mpconfig::mp_float_t;
 use crate::mpconfig::{mp_int_t, mp_uint_t};
+use crate::mpprint::mp_print_t;
 use crate::qstr::qstr;
+use crate::runtime0::{mp_binary_op_t, mp_unary_op_t};
 
 pub type size_t = usize;
 
@@ -42,82 +44,6 @@ pub union mp_rom_obj_t {
 }
 #[cfg(not(micropython = "MICROPY_OBJ_REPR_D"))]
 pub type mp_rom_obj_t = mp_const_obj_t;
-
-#[repr(C)]
-pub struct mp_print_t {
-    pub data: *mut c_void,
-    pub print_strn: mp_print_strn_t,
-}
-pub type mp_print_strn_t = Option<unsafe extern "C" fn(*mut c_void, *const c_char, size_t)>;
-
-// `runtime0.h` enum types used by obj.h callbacks.
-pub type mp_unary_op_t = c_uint;
-pub const MP_UNARY_OP_POSITIVE: mp_unary_op_t = 0;
-pub const MP_UNARY_OP_NEGATIVE: mp_unary_op_t = 1;
-pub const MP_UNARY_OP_INVERT: mp_unary_op_t = 2;
-pub const MP_UNARY_OP_NOT: mp_unary_op_t = 3;
-pub const MP_UNARY_OP_BOOL: mp_unary_op_t = 4;
-pub const MP_UNARY_OP_LEN: mp_unary_op_t = 5;
-pub const MP_UNARY_OP_HASH: mp_unary_op_t = 6;
-pub const MP_UNARY_OP_ABS: mp_unary_op_t = 7;
-pub const MP_UNARY_OP_INT_MAYBE: mp_unary_op_t = 8;
-pub const MP_UNARY_OP_FLOAT_MAYBE: mp_unary_op_t = 9;
-pub const MP_UNARY_OP_COMPLEX_MAYBE: mp_unary_op_t = 10;
-pub const MP_UNARY_OP_SIZEOF: mp_unary_op_t = 11;
-
-pub type mp_binary_op_t = c_uint;
-pub const MP_BINARY_OP_LESS: mp_binary_op_t = 0;
-pub const MP_BINARY_OP_MORE: mp_binary_op_t = 1;
-pub const MP_BINARY_OP_EQUAL: mp_binary_op_t = 2;
-pub const MP_BINARY_OP_LESS_EQUAL: mp_binary_op_t = 3;
-pub const MP_BINARY_OP_MORE_EQUAL: mp_binary_op_t = 4;
-pub const MP_BINARY_OP_NOT_EQUAL: mp_binary_op_t = 5;
-pub const MP_BINARY_OP_IN: mp_binary_op_t = 6;
-pub const MP_BINARY_OP_IS: mp_binary_op_t = 7;
-pub const MP_BINARY_OP_EXCEPTION_MATCH: mp_binary_op_t = 8;
-pub const MP_BINARY_OP_INPLACE_OR: mp_binary_op_t = 9;
-pub const MP_BINARY_OP_INPLACE_XOR: mp_binary_op_t = 10;
-pub const MP_BINARY_OP_INPLACE_AND: mp_binary_op_t = 11;
-pub const MP_BINARY_OP_INPLACE_LSHIFT: mp_binary_op_t = 12;
-pub const MP_BINARY_OP_INPLACE_RSHIFT: mp_binary_op_t = 13;
-pub const MP_BINARY_OP_INPLACE_ADD: mp_binary_op_t = 14;
-pub const MP_BINARY_OP_INPLACE_SUBTRACT: mp_binary_op_t = 15;
-pub const MP_BINARY_OP_INPLACE_MULTIPLY: mp_binary_op_t = 16;
-pub const MP_BINARY_OP_INPLACE_MAT_MULTIPLY: mp_binary_op_t = 17;
-pub const MP_BINARY_OP_INPLACE_FLOOR_DIVIDE: mp_binary_op_t = 18;
-pub const MP_BINARY_OP_INPLACE_TRUE_DIVIDE: mp_binary_op_t = 19;
-pub const MP_BINARY_OP_INPLACE_MODULO: mp_binary_op_t = 20;
-pub const MP_BINARY_OP_INPLACE_POWER: mp_binary_op_t = 21;
-pub const MP_BINARY_OP_OR: mp_binary_op_t = 22;
-pub const MP_BINARY_OP_XOR: mp_binary_op_t = 23;
-pub const MP_BINARY_OP_AND: mp_binary_op_t = 24;
-pub const MP_BINARY_OP_LSHIFT: mp_binary_op_t = 25;
-pub const MP_BINARY_OP_RSHIFT: mp_binary_op_t = 26;
-pub const MP_BINARY_OP_ADD: mp_binary_op_t = 27;
-pub const MP_BINARY_OP_SUBTRACT: mp_binary_op_t = 28;
-pub const MP_BINARY_OP_MULTIPLY: mp_binary_op_t = 29;
-pub const MP_BINARY_OP_MAT_MULTIPLY: mp_binary_op_t = 30;
-pub const MP_BINARY_OP_FLOOR_DIVIDE: mp_binary_op_t = 31;
-pub const MP_BINARY_OP_TRUE_DIVIDE: mp_binary_op_t = 32;
-pub const MP_BINARY_OP_MODULO: mp_binary_op_t = 33;
-pub const MP_BINARY_OP_POWER: mp_binary_op_t = 34;
-pub const MP_BINARY_OP_DIVMOD: mp_binary_op_t = 35;
-pub const MP_BINARY_OP_CONTAINS: mp_binary_op_t = 36;
-pub const MP_BINARY_OP_REVERSE_OR: mp_binary_op_t = 37;
-pub const MP_BINARY_OP_REVERSE_XOR: mp_binary_op_t = 38;
-pub const MP_BINARY_OP_REVERSE_AND: mp_binary_op_t = 39;
-pub const MP_BINARY_OP_REVERSE_LSHIFT: mp_binary_op_t = 40;
-pub const MP_BINARY_OP_REVERSE_RSHIFT: mp_binary_op_t = 41;
-pub const MP_BINARY_OP_REVERSE_ADD: mp_binary_op_t = 42;
-pub const MP_BINARY_OP_REVERSE_SUBTRACT: mp_binary_op_t = 43;
-pub const MP_BINARY_OP_REVERSE_MULTIPLY: mp_binary_op_t = 44;
-pub const MP_BINARY_OP_REVERSE_MAT_MULTIPLY: mp_binary_op_t = 45;
-pub const MP_BINARY_OP_REVERSE_FLOOR_DIVIDE: mp_binary_op_t = 46;
-pub const MP_BINARY_OP_REVERSE_TRUE_DIVIDE: mp_binary_op_t = 47;
-pub const MP_BINARY_OP_REVERSE_MODULO: mp_binary_op_t = 48;
-pub const MP_BINARY_OP_REVERSE_POWER: mp_binary_op_t = 49;
-pub const MP_BINARY_OP_NOT_IN: mp_binary_op_t = 50;
-pub const MP_BINARY_OP_IS_NOT: mp_binary_op_t = 51;
 
 #[repr(C)]
 pub struct mp_obj_base_t {
