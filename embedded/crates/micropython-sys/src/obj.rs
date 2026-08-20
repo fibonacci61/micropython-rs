@@ -14,6 +14,7 @@ use crate::misc::{byte, mp_rom_error_text_t, vstr_t};
 use crate::mpconfig::mp_float_t;
 use crate::mpconfig::{mp_int_t, mp_uint_t};
 use crate::mpprint::mp_print_t;
+use crate::objstr::mp_obj_str_t;
 use crate::qstr::qstr;
 use crate::runtime0::{mp_binary_op_t, mp_unary_op_t};
 
@@ -551,7 +552,6 @@ opaque_structs!(
     mp_obj_float_t,
     mp_obj_none_t,
     mp_obj_bool_t,
-    mp_obj_str_t,
     mp_obj_tuple_t,
     mp_obj_singleton_t,
     mp_obj_exception_t
