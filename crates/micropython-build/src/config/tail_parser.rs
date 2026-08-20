@@ -323,7 +323,11 @@ fn is_identifier_byte(byte: u8) -> bool {
 }
 
 fn is_config_name(name: &str) -> bool {
+    if name == "MP_INT_TYPE" {
+        return true;
+    }
     name.strip_prefix("MICROPY_")
+        .or_else(|| name.strip_prefix("MP_INT_TYPE_"))
         .is_some_and(|suffix| !suffix.is_empty() && suffix.bytes().all(is_identifier_byte))
 }
 

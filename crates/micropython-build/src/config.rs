@@ -1,4 +1,5 @@
 pub mod expression;
+pub mod names;
 pub mod tail_parser;
 
 use std::collections::BTreeMap;
@@ -9,8 +10,8 @@ use anyhow::{Context, anyhow, bail};
 use mpy_rs::manifest::{find_manifest, parse_manifest};
 use tempfile::NamedTempFile;
 
-use crate::CONFIG_NAMES;
 use crate::config::expression::{ConfigValue, EvaluatedValue, evaluate_config};
+use crate::config::names::{CONFIG_NAMES, ENUM_CONFIGS};
 use crate::config::tail_parser::parse_tail;
 
 const TAIL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tail.c"));
@@ -41,9 +42,17 @@ impl Config {
             .join(", ");
         println!("cargo::rustc-check-cfg=cfg(micropython, values({checked_values}))");
 
+        let enum_names = ENUM_CONFIGS
+            .iter()
+            .flat_map(|(selector, constants)| {
+                std::iter::once(*selector).chain(constants.iter().copied())
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+
         for (name, value) in self
             .definitions
             .iter()
+            .filter(|(name, _)| !enum_names.contains(name.as_str()))
             .filter_map(|(name, value)| value.evaluated.as_ref().ok().map(|value| (name, value)))
         {
             let enabled = match value {
@@ -55,10 +64,27 @@ impl Config {
             }
         }
 
+        for (selector, constants) in ENUM_CONFIGS {
+            if let Some(constant) = selected_enum_constant(&self.definitions, selector, constants) {
+                println!("cargo::rustc-cfg=micropython={constant:?}");
+            }
+        }
+
         for dep in self.deps.iter() {
             println!("cargo::rerun-if-changed={}", dep.display());
         }
     }
+}
+
+fn selected_enum_constant<'a>(
+    definitions: &BTreeMap<String, ConfigValue>,
+    selector: &str,
+    constants: &'a [&str],
+) -> Option<&'a str> {
+    let selected = definitions.get(selector)?.integer()?;
+    constants.iter().copied().find(|constant| {
+        definitions.get(*constant).and_then(ConfigValue::integer) == Some(selected)
+    })
 }
 
 pub fn process_mp_config() -> anyhow::Result<Config> {
