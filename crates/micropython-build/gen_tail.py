@@ -14,6 +14,12 @@ DEFINE_RE = re.compile(
 )
 BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 
+EXTRA_CONFIG_NAMES = (
+    # Defined by ports which opt into compressed error strings rather than by
+    # py/mpconfig.h itself, but required by public py header ABIs.
+    "MICROPY_ROM_TEXT_COMPRESSION",
+)
+
 # Numeric configuration selectors whose associated constants represent mutually
 # exclusive values rather than independent feature switches.
 ENUM_CONFIGS: dict[str, tuple[str, ...]] = {
@@ -60,6 +66,7 @@ def find_config_macros(source: str) -> list[str]:
             continue
         names.add(match.group(1))
 
+    names.update(EXTRA_CONFIG_NAMES)
     return sorted(names)
 
 

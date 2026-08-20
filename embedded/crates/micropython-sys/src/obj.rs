@@ -9,24 +9,13 @@
 use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::ptr;
 
-pub type size_t = usize;
-pub type byte = u8;
-pub type qstr = usize;
-#[cfg(micropython = "MP_INT_TYPE_INTPTR")]
-pub type mp_int_t = isize;
-#[cfg(micropython = "MP_INT_TYPE_INTPTR")]
-pub type mp_uint_t = usize;
-#[cfg(micropython = "MP_INT_TYPE_INT64")]
-pub type mp_int_t = i64;
-#[cfg(micropython = "MP_INT_TYPE_INT64")]
-pub type mp_uint_t = u64;
-#[cfg(micropython = "MP_INT_TYPE_OTHER")]
-compile_error!("micropython-sys does not yet support port-defined MP_INT_TYPE_OTHER integer types");
+use crate::misc::{byte, mp_rom_error_text_t, vstr_t};
+#[cfg(micropython = "MICROPY_PY_BUILTINS_FLOAT")]
+use crate::mpconfig::mp_float_t;
+use crate::mpconfig::{mp_int_t, mp_uint_t};
+use crate::qstr::qstr;
 
-#[cfg(micropython = "MICROPY_FLOAT_IMPL_FLOAT")]
-pub type mp_float_t = f32;
-#[cfg(micropython = "MICROPY_FLOAT_IMPL_DOUBLE")]
-pub type mp_float_t = f64;
+pub type size_t = usize;
 
 #[cfg(micropython = "MICROPY_OBJ_REPR_D")]
 pub type mp_obj_t = u64;
@@ -639,8 +628,7 @@ opaque_structs!(
     mp_obj_str_t,
     mp_obj_tuple_t,
     mp_obj_singleton_t,
-    mp_obj_exception_t,
-    vstr_t
+    mp_obj_exception_t
 );
 
 pub const MP_OBJ_FUN_ARGS_MAX: u32 = 0xffff;
@@ -900,7 +888,7 @@ pub fn mp_float_hash(value: mp_float_t) -> mp_int_t {
 #[inline]
 pub unsafe fn mp_obj_new_exception_msg(
     exc_type: *const mp_obj_type_t,
-    _msg: *const c_char,
+    _msg: mp_rom_error_text_t,
 ) -> mp_obj_t {
     unsafe { mp_obj_new_exception(exc_type) }
 }
@@ -992,17 +980,19 @@ unsafe extern "C" {
         args: *const mp_obj_t,
     ) -> mp_obj_t;
     #[cfg(not(micropython = "MICROPY_ERROR_REPORTING_NONE"))]
-    pub fn mp_obj_new_exception_msg(exc_type: *const mp_obj_type_t, msg: *const c_char)
-        -> mp_obj_t;
+    pub fn mp_obj_new_exception_msg(
+        exc_type: *const mp_obj_type_t,
+        msg: mp_rom_error_text_t,
+    ) -> mp_obj_t;
     #[cfg(not(micropython = "MICROPY_ERROR_REPORTING_NONE"))]
     pub fn mp_obj_new_exception_msg_varg(
         exc_type: *const mp_obj_type_t,
-        fmt: *const c_char,
+        fmt: mp_rom_error_text_t,
         ...
     ) -> mp_obj_t;
     pub fn mp_obj_new_gen_wrap(fun: mp_obj_t) -> mp_obj_t;
     pub fn mp_obj_new_closure(fun: mp_obj_t, n_closed: size_t, closed: *const mp_obj_t)
-        -> mp_obj_t;
+    -> mp_obj_t;
     pub fn mp_obj_new_tuple(n: size_t, items: *const mp_obj_t) -> mp_obj_t;
     pub fn mp_obj_new_list(n: size_t, items: *mut mp_obj_t) -> mp_obj_t;
     pub fn mp_obj_new_dict(n_args: size_t) -> mp_obj_t;
