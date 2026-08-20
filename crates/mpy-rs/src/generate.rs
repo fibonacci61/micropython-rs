@@ -14,7 +14,7 @@ use walkdir::WalkDir;
 
 use crate::generate::c::{PreprocessorContext, scan_c_cached};
 use crate::generate::rust::scan_rust_cached;
-use crate::manifest::{Crate, MicroPython, Port, find_manifest, parse_manifest};
+use crate::manifest::{Crate, find_manifest, parse_manifest};
 
 pub fn gen_version_header(py_dir: &Path, genhdr_dir: &Path) -> anyhow::Result<()> {
     let makeversionhdr_path = py_dir.join("makeversionhdr.py");
@@ -265,29 +265,21 @@ pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
     let manifest_paths = find_manifest(dir)?;
     let manifest = parse_manifest(&manifest_paths.path)?;
 
-    let Some(MicroPython { path: mp_dir }) = manifest.micropython else {
+    let Some(micropython) = manifest.micropython else {
         bail!(
             "`[micropython]` is required by `mpy-rs generate` in `{}`",
             manifest_paths.path.display()
         );
     };
-    let mp_dir = manifest_paths
-        .dir
-        .join(&mp_dir)
-        .canonicalize()
-        .with_context(|| format!("micropython directory `{}` not available", mp_dir.display()))?;
+    let mp_dir = micropython.path_canonicalized(&manifest_paths.dir)?;
 
-    let Some(Port { path: port_dir }) = manifest.port else {
+    let Some(port) = manifest.port else {
         bail!(
             "`[port]` is required by `mpy-rs generate` in `{}`",
             manifest_paths.path.display()
         );
     };
-    let port_dir = manifest_paths
-        .dir
-        .join(&port_dir)
-        .canonicalize()
-        .with_context(|| format!("port directory `{}` not available", port_dir.display()))?;
+    let port_dir = port.path_canonicalized(&manifest_paths.dir)?;
 
     let py_dir = mp_dir.join("py");
 

@@ -59,3 +59,26 @@ pub fn parse_manifest(path: &Path) -> anyhow::Result<Manifest> {
         .with_context(|| format!("couldn't parse manifest `{}`", path.display()))?;
     Ok(manifest)
 }
+
+impl Port {
+    pub fn path_canonicalized(&self, manifest_dir: &Path) -> anyhow::Result<PathBuf> {
+        manifest_dir
+            .join(&self.path)
+            .canonicalize()
+            .with_context(|| format!("port directory `{}` not available", self.path.display()))
+    }
+}
+
+impl MicroPython {
+    pub fn path_canonicalized(&self, manifest_dir: &Path) -> anyhow::Result<PathBuf> {
+        manifest_dir
+            .join(&self.path)
+            .canonicalize()
+            .with_context(|| {
+                format!(
+                    "micropython directory `{}` not available",
+                    self.path.display()
+                )
+            })
+    }
+}

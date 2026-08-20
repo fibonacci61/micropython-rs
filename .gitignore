@@ -1,3 +1,4 @@
 /target
 /embedded/crates/*/target
 /embedded/crates/*/Cargo.lock
+__pycache__/

@@ -3,6 +3,10 @@ name = "mpy-rs"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["install"]
+install = ["dep:tar", "dep:zstd"]
+
 [dependencies]
 anyhow = "1.0.104"
 blake3 = "1.8.6"
@@ -10,12 +14,13 @@ clap = { version = "4.6.6", features = ["derive"] }
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-tar = "0.4.46"
+tar = { version = "0.4.46", optional = true }
 tempfile = "3.27.0"
 toml = "1.1.4"
 walkdir = "2.5.0"
-zstd = "0.13.3"
+zstd = { version = "0.13.3", optional = true }
 
 [build-dependencies]
-tar = "0.4.46"
-zstd = "0.13.3"
+ignore = "0.4.33"
+tar = { version = "0.4.46", optional = true }
+zstd = { version = "0.13.3", optional = true }

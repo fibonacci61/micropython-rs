@@ -1,4 +1,4 @@
-mod depfile;
+pub mod depfile;
 
 use std::{
     collections::HashMap,
@@ -122,7 +122,7 @@ pub fn scan_c(
 
     let depfile =
         depfile::parse(&std::fs::read(depfile_path).context("couldn't read temporary file")?)
-            .context("couldn't parse clang depfile")?;
+            .context("couldn't parse `clang` depfile")?;
 
     let preprocessed_src = output.stdout;
     let mut qstrs = Vec::new();

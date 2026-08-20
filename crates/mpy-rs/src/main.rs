@@ -1,13 +1,9 @@
-mod generate;
-mod install;
-mod manifest;
-
 use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 
-use crate::{generate::generate, install::install};
+use mpy_rs::generate::generate;
 
 #[derive(Parser)]
 struct Cli {
@@ -19,6 +15,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    #[cfg(feature = "install")]
     Install,
     Generate,
 }
@@ -44,7 +41,8 @@ fn main() -> anyhow::Result<()> {
         })?;
 
     match cli.command {
-        Command::Install => install(dir),
+        #[cfg(feature = "install")]
+        Command::Install => mpy_rs::install::install(dir),
         Command::Generate => generate(dir),
     }
 }
