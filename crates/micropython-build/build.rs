@@ -4,11 +4,11 @@ use std::fs;
 use std::path::PathBuf;
 
 mod config_names {
-    include!("src/config_names.rs");
+    include!("src/config/names.rs");
 }
 
 fn main() {
-    println!("cargo::rerun-if-changed=src/config_names.rs");
+    println!("cargo::rerun-if-changed=src/config/names.rs");
     println!("cargo::rerun-if-changed=build.rs");
 
     let mut tail = String::from(
