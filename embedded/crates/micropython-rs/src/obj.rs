@@ -1,0 +1,118 @@
+use core::{ffi::c_void, marker::PhantomData, ops::Deref};
+
+use micropython_sys::{mp_int_t, mp_obj_t, mp_uint_t};
+
+use crate::qstr::Qstr;
+
+mod ptr;
+
+#[cfg_attr(micropython = "MICROPY_OBJ_REPR_A", path = "obj/repr_a.rs")]
+#[cfg_attr(micropython = "MICROPY_OBJ_REPR_B", path = "obj/repr_b.rs")]
+#[cfg_attr(micropython = "MICROPY_OBJ_REPR_C", path = "obj/repr_c.rs")]
+#[cfg_attr(micropython = "MICROPY_OBJ_REPR_D", path = "obj/repr_d.rs")]
+mod tagging;
+
+#[derive(Clone, Copy)]
+pub struct Obj {
+    inner: mp_obj_t,
+}
+
+// SAFETY: safe to send/share between threads because only immutable access of small ints, qstrs
+// and immediate objects is allowed
+unsafe impl Send for Obj {}
+unsafe impl Sync for Obj {}
+
+#[repr(transparent)]
+pub struct Immortal<T: 'static> {
+    inner: mp_obj_t,
+    _phantom: PhantomData<&'static T>,
+}
+
+unsafe impl<T: Send> Send for Immortal<T> {}
+unsafe impl<T: Sync> Sync for Immortal<T> {}
+
+pub struct Bound<'py, T> {
+    inner: mp_obj_t,
+    phantom: PhantomData<&'py T>,
+}
+
+impl Obj {
+    pub const unsafe fn from_raw(o: mp_obj_t) -> Self {
+        Self { inner: o }
+    }
+
+    pub const fn from_small_int(v: mp_int_t) -> Self {
+        Self {
+            inner: tagging::new_small_int(v),
+        }
+    }
+
+    pub const fn from_qstr(q: Qstr) -> Self {
+        Self {
+            inner: tagging::new_qstr(q.into_raw()),
+        }
+    }
+
+    pub const fn from_immediate(imm: mp_uint_t) -> Self {
+        Self {
+            inner: tagging::new_immediate(imm),
+        }
+    }
+
+    pub fn small_int(self) -> Option<mp_int_t> {
+        if tagging::is_small_int(self.inner) {
+            Some(tagging::small_int_value(self.inner))
+        } else {
+            None
+        }
+    }
+
+    pub fn qstr(self) -> Option<Qstr> {
+        if tagging::is_qstr(self.inner) {
+            Some(unsafe { Qstr::from_raw(tagging::qstr_value(self.inner)) })
+        } else {
+            None
+        }
+    }
+
+    pub fn immediate(self) -> Option<mp_uint_t> {
+        if tagging::is_immediate(self.inner) {
+            Some(tagging::immediate_value(self.inner))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(micropython = "MICROPY_OBJ_IMMEDIATE_OBJS")]
+impl Obj {
+    pub const NONE: Self = Self::from_immediate(0);
+    pub const FALSE: Self = Self::from_immediate(1);
+    pub const TRUE: Self = Self::from_immediate(3);
+}
+
+// TODO: add using Immortal<T>
+#[cfg(not(micropython = "MICROPY_OBJ_IMMEDIATE_OBJS"))]
+impl Obj {}
+
+impl<T: 'static> Immortal<T> {
+    pub const fn new(inner: &'static T) -> Self {
+        Self {
+            inner: tagging::new_ptr(inner as *const T as *mut c_void),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn bind(&self) -> &T {
+        // SAFETY: `self.inner` was constructed from a `&'static T`
+        unsafe { &*tagging::ptr_value(self.inner).cast() }
+    }
+}
+
+impl<'py, T> Deref for Bound<'py, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        todo!()
+    }
+}

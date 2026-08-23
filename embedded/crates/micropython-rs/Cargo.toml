@@ -1,0 +1,10 @@
+[package]
+name = "micropython-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+micropython-sys = { path = "../micropython-sys" }
+
+[build-dependencies]
+micropython-build = { path = "../../../crates/micropython-build" }
