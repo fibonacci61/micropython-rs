@@ -82,6 +82,10 @@ impl Obj {
             None
         }
     }
+
+    pub fn into_raw(self) -> mp_obj_t {
+        self.inner
+    }
 }
 
 #[cfg(micropython = "MICROPY_OBJ_IMMEDIATE_OBJS")]
