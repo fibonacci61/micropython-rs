@@ -59,6 +59,22 @@ impl Obj {
         }
     }
 
+    pub fn is_small_int(self) -> bool {
+        tagging::is_small_int(self.inner)
+    }
+
+    pub fn is_qstr(self) -> bool {
+        tagging::is_qstr(self.inner)
+    }
+
+    pub fn is_immediate(self) -> bool {
+        tagging::is_immediate(self.inner)
+    }
+
+    pub fn is_ptr(self) -> bool {
+        tagging::is_ptr(self.inner)
+    }
+
     pub fn small_int(self) -> Option<mp_int_t> {
         if tagging::is_small_int(self.inner) {
             Some(tagging::small_int_value(self.inner))
