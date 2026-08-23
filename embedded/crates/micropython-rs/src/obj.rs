@@ -117,6 +117,6 @@ impl<'py, T> Deref for Bound<'py, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        todo!()
+        unsafe { &*tagging::ptr_value(self.inner).cast() }
     }
 }
