@@ -436,10 +436,17 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bindgen",
+ "micropython-depfile",
  "micropython-manifest",
- "mpy-rs",
  "regex",
  "tempfile",
+]
+
+[[package]]
+name = "micropython-depfile"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
 ]
 
 [[package]]
@@ -465,6 +472,7 @@ dependencies = [
  "blake3",
  "clap",
  "ignore",
+ "micropython-depfile",
  "micropython-manifest",
  "regex",
  "serde",

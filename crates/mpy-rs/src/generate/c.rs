@@ -1,5 +1,3 @@
-pub mod depfile;
-
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -13,7 +11,8 @@ use regex::bytes::Regex;
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::generate::{ScanItem, c::depfile::Depfile, cache_path};
+use crate::generate::{ScanItem, cache_path};
+use micropython_depfile::Depfile;
 
 #[derive(Serialize, Deserialize)]
 pub struct CCacheItem {
@@ -120,9 +119,10 @@ pub fn scan_c(
         );
     }
 
-    let depfile =
-        depfile::parse(&std::fs::read(depfile_path).context("couldn't read temporary file")?)
-            .context("couldn't parse `clang` depfile")?;
+    let depfile = micropython_depfile::parse(
+        &std::fs::read(depfile_path).context("couldn't read temporary file")?,
+    )
+    .context("couldn't parse `clang` depfile")?;
 
     let preprocessed_src = output.stdout;
     let mut qstrs = Vec::new();

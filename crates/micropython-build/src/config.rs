@@ -142,7 +142,7 @@ pub fn process_mp_config() -> anyhow::Result<Config> {
     .context("couldn't parse `clang` generated config tail")?;
     let definitions = evaluate_config(tail);
 
-    let depfile = mpy_rs::generate::c::depfile::parse(
+    let depfile = micropython_depfile::parse(
         &std::fs::read(depfile_path).context("couldn't read temporary file")?,
     )
     .context("couldn't parse `clang` depfile")?;
