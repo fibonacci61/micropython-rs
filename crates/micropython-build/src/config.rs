@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::{io::Write, process::Command};
 
 use anyhow::{Context, anyhow, bail};
-use mpy_rs::manifest::{find_manifest, parse_manifest};
+use mpy_rs::manifest::{find_manifest_from, parse_manifest};
 use tempfile::NamedTempFile;
 
 use crate::config::expression::{ConfigValue, EvaluatedValue, evaluate_config};
@@ -91,7 +91,7 @@ pub fn process_mp_config() -> anyhow::Result<Config> {
     let cargo_manifest_dir =
         std::env::var_os("CARGO_MANIFEST_DIR").ok_or(anyhow!("`CARGO_MANIFEST_DIR` is not set"))?;
 
-    let manifest_paths = find_manifest(Some(PathBuf::from(cargo_manifest_dir)))?;
+    let manifest_paths = find_manifest_from(PathBuf::from(cargo_manifest_dir))?;
     let manifest = parse_manifest(&manifest_paths.path)?;
 
     let port = manifest

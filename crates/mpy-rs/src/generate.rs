@@ -261,8 +261,8 @@ pub fn gen_root_pointers(genhdr_dir: &Path, items: &[ScanItem]) -> anyhow::Resul
     Ok(())
 }
 
-pub fn generate(dir: Option<PathBuf>) -> anyhow::Result<()> {
-    let manifest_paths = find_manifest(dir)?;
+pub fn generate() -> anyhow::Result<()> {
+    let manifest_paths = find_manifest()?;
     let manifest = parse_manifest(&manifest_paths.path)?;
 
     let Some(micropython) = manifest.micropython else {

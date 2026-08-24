@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, anyhow};
-use mpy_rs::manifest::{find_manifest, parse_manifest};
+use mpy_rs::manifest::{find_manifest_from, parse_manifest};
 
 pub fn generate<T: Into<String>>(wrapper: T) -> anyhow::Result<()> {
     let out_dir =
@@ -10,7 +10,7 @@ pub fn generate<T: Into<String>>(wrapper: T) -> anyhow::Result<()> {
         std::env::var_os("CARGO_MANIFEST_DIR").ok_or(anyhow!("`CARGO_MANIFEST_DIR` is not set"))?,
     );
 
-    let manifest_paths = find_manifest(Some(PathBuf::from(cargo_manifest_dir)))?;
+    let manifest_paths = find_manifest_from(PathBuf::from(cargo_manifest_dir))?;
     let manifest = parse_manifest(&manifest_paths.path)?;
 
     let port = manifest

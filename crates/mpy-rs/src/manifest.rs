@@ -34,8 +34,7 @@ pub struct ManifestPaths {
     pub dir: PathBuf,
 }
 
-pub fn find_manifest(dir: Option<PathBuf>) -> anyhow::Result<ManifestPaths> {
-    let mut dir = dir.unwrap_or_else(|| std::env::current_dir().unwrap());
+pub fn find_manifest_from(mut dir: PathBuf) -> anyhow::Result<ManifestPaths> {
     assert!(dir.is_absolute());
 
     loop {
@@ -50,6 +49,11 @@ pub fn find_manifest(dir: Option<PathBuf>) -> anyhow::Result<ManifestPaths> {
             bail!("couldn't find `{MANIFEST_FILE_NAME}`");
         }
     }
+}
+
+pub fn find_manifest() -> anyhow::Result<ManifestPaths> {
+    let dir = std::env::current_dir().context("couldn't read current working directory")?;
+    find_manifest_from(dir)
 }
 
 pub fn parse_manifest(path: &Path) -> anyhow::Result<Manifest> {

@@ -10,7 +10,7 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
     #[arg(short = 'C')]
-    dir: Option<PathBuf>,
+    chdir: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -28,21 +28,14 @@ enum Generate {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let dir = cli
-        .dir
-        .as_ref()
-        .map(|d| d.canonicalize())
-        .transpose()
-        .with_context(|| {
-            format!(
-                "couldn't canonicalize directory `{}`",
-                cli.dir.unwrap().display()
-            )
-        })?;
+    if let Some(chdir) = cli.chdir {
+        std::env::set_current_dir(&chdir)
+            .with_context(|| format!("couldn't change working directory to {}", chdir.display()))?
+    }
 
     match cli.command {
         #[cfg(feature = "install")]
-        Command::Install => mpy_rs::install::install(dir),
-        Command::Generate => generate(dir),
+        Command::Install => mpy_rs::install::install(),
+        Command::Generate => generate(),
     }
 }
