@@ -1,22 +1,23 @@
 use core::{
-    error::Error,
-    fmt::Display,
     marker::PhantomData,
     mem::MaybeUninit,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
-use micropython_sys::{gc_init, mp_deinit, mp_init};
+use micropython_sys::{gc_init, mp_deinit, mp_init, mp_uint_t};
+use thiserror::Error;
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+// cannot exceed `mp_uint_t::MAX`
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 pub fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-pub fn generation() -> u64 {
-    GENERATION.load(Ordering::Relaxed)
+pub fn generation() -> mp_uint_t {
+    // `GENERATION` is capped at `mp_uint_t::MAX`
+    GENERATION.load(Ordering::Relaxed) as mp_uint_t
 }
 
 #[derive(Default)]
@@ -48,16 +49,16 @@ pub struct MicroPython<'py> {
     _not_send: PhantomData<*mut ()>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InitError;
-
-impl Display for InitError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("vm currently initialized, cannot initialize again")
-    }
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub enum InitError {
+    #[error("vm currently initialized, cannot initialize again before deinit")]
+    CurrentlyInitialized,
+    #[error(
+        "generation counter overflow; maximum number of initializations was reached ({})",
+        mp_uint_t::MAX
+    )]
+    GenerationOverflow,
 }
-
-impl Error for InitError {}
 
 impl<'h> VmInner<'h> {
     fn init(&mut self) -> Result<(), InitError> {
@@ -65,8 +66,12 @@ impl<'h> VmInner<'h> {
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_err()
         {
-            return Err(InitError);
+            return Err(InitError::CurrentlyInitialized);
         }
+
+        GENERATION
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |g| g.checked_add(1))
+            .map_err(|_| InitError::GenerationOverflow)?;
 
         #[cfg(micropython = "MICROPY_ENABLE_GC")]
         if let Some(heap) = self.data.heap.as_mut() {
@@ -79,8 +84,6 @@ impl<'h> VmInner<'h> {
         }
 
         unsafe { mp_init() };
-
-        GENERATION.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 

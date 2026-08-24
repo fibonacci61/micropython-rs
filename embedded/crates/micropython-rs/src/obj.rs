@@ -1,8 +1,12 @@
-use core::{ffi::c_void, marker::PhantomData, ops::Deref};
+use core::{ffi::c_void, marker::PhantomData, num::NonZero, ops::Deref};
 
 use micropython_sys::{mp_int_t, mp_obj_t, mp_uint_t};
+use thiserror::Error;
 
-use crate::qstr::Qstr;
+use crate::{
+    qstr::Qstr,
+    vm::{MicroPython, generation},
+};
 
 mod ptr;
 
@@ -31,9 +35,15 @@ pub struct Immortal<T: 'static> {
 unsafe impl<T: Send> Send for Immortal<T> {}
 unsafe impl<T: Sync> Sync for Immortal<T> {}
 
-pub struct Bound<'py, T> {
+pub struct GenerationTracked<T> {
     inner: mp_obj_t,
-    phantom: PhantomData<&'py T>,
+    generation: NonZero<mp_uint_t>,
+    _phantom: PhantomData<T>,
+}
+
+pub struct Bound<'o, T> {
+    inner: mp_obj_t,
+    _phantom: PhantomData<&'o T>,
 }
 
 impl Obj {
@@ -129,7 +139,74 @@ impl<T: 'static> Immortal<T> {
     }
 }
 
-impl<'py, T> Deref for Bound<'py, T> {
+#[derive(Debug, Error)]
+pub enum BindError {
+    #[error(
+        "generation mismatch; active generation is `{expected}`, object generation is `{actual}`"
+    )]
+    GenerationMismatch {
+        expected: mp_uint_t,
+        actual: mp_uint_t,
+    },
+}
+
+impl<T> GenerationTracked<T> {
+    pub fn new(value: T, mp: MicroPython<'_>) -> Self {
+        Self {
+            // TODO: allocate
+            inner: Obj::NONE.into_raw(),
+            // `MicroPython<'_>` implies at least one initialization, so generation cannot be zero
+            generation: NonZero::new(generation()).unwrap(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn generation(&self) -> mp_uint_t {
+        self.generation.get()
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.generation.get() == generation()
+    }
+
+    pub fn try_bind<'obj, 'py, 'bound>(
+        &'obj self,
+        mp: MicroPython<'py>,
+    ) -> Result<Bound<'bound, T>, BindError>
+    where
+        'obj: 'bound,
+        'py: 'bound,
+    {
+        let vm_generation = generation();
+        if vm_generation != self.generation.get() {
+            Err(BindError::GenerationMismatch {
+                expected: vm_generation,
+                actual: self.generation.get(),
+            })
+        } else {
+            Ok(Bound {
+                inner: self.inner,
+                _phantom: PhantomData,
+            })
+        }
+    }
+
+    pub fn bind<'obj, 'py, 'bound>(&'obj self, mp: MicroPython<'py>) -> Bound<'bound, T>
+    where
+        'obj: 'bound,
+        'py: 'bound,
+    {
+        self.try_bind(mp).unwrap_or_else(|_| {
+            panic!(
+                "generation mismatch; active generation is `{}`, object generation is `{}`",
+                generation(),
+                self.generation.get()
+            )
+        })
+    }
+}
+
+impl<'o, T> Deref for Bound<'o, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
