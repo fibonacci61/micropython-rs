@@ -7,8 +7,8 @@ const MANIFEST_FILE_NAME: &str = "micropython-rs.toml";
 
 #[derive(Debug, Deserialize)]
 pub struct Manifest {
-    pub port: Option<Port>,
-    pub micropython: Option<MicroPython>,
+    pub port: Port,
+    pub micropython: MicroPython,
     #[serde(default, rename = "crate")]
     pub crates: Vec<Crate>,
 }

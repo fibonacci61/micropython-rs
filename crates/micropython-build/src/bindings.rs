@@ -13,15 +13,11 @@ pub fn generate<T: Into<String>>(wrapper: T) -> anyhow::Result<()> {
     let manifest_paths = find_manifest_from(PathBuf::from(cargo_manifest_dir))?;
     let manifest = parse_manifest(&manifest_paths.path)?;
 
-    let port = manifest
-        .port
-        .ok_or(anyhow!("`[port]` is required by `micropython-build`"))?;
-    let port_dir = port.path_canonicalized(&manifest_paths.dir)?;
+    let port_dir = manifest.port.path_canonicalized(&manifest_paths.dir)?;
+    let mp_dir = manifest
+        .micropython
+        .path_canonicalized(&manifest_paths.dir)?;
 
-    let mp = manifest.micropython.ok_or(anyhow!(
-        "`[micropython]` is required by `micropython-build`"
-    ))?;
-    let mp_dir = mp.path_canonicalized(&manifest_paths.dir)?;
     let py_dir = mp_dir.join("py");
     let py_dir_escaped = regex::escape(
         py_dir

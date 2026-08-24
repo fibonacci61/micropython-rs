@@ -94,15 +94,8 @@ pub fn process_mp_config() -> anyhow::Result<Config> {
     let manifest_paths = find_manifest_from(PathBuf::from(cargo_manifest_dir))?;
     let manifest = parse_manifest(&manifest_paths.path)?;
 
-    let port = manifest
-        .port
-        .ok_or(anyhow!("`[port]` is required by `micropython-build`"))?;
-    let port_dir = port.path_canonicalized(&manifest_paths.dir)?;
-
-    let mp = manifest.micropython.ok_or(anyhow!(
-        "`[micropython]` is required by `micropython-build`"
-    ))?;
-    let mp_dir = mp.path_canonicalized(&manifest_paths.dir)?;
+    let port_dir = manifest.port.path_canonicalized(&manifest_paths.dir)?;
+    let mp_dir = manifest.port.path_canonicalized(&manifest_paths.dir)?;
 
     let mut wrapper_file = tempfile::Builder::new()
         .suffix(".c")

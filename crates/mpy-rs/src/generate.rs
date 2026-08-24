@@ -265,21 +265,10 @@ pub fn generate() -> anyhow::Result<()> {
     let manifest_paths = find_manifest()?;
     let manifest = parse_manifest(&manifest_paths.path)?;
 
-    let Some(micropython) = manifest.micropython else {
-        bail!(
-            "`[micropython]` is required by `mpy-rs generate` in `{}`",
-            manifest_paths.path.display()
-        );
-    };
-    let mp_dir = micropython.path_canonicalized(&manifest_paths.dir)?;
-
-    let Some(port) = manifest.port else {
-        bail!(
-            "`[port]` is required by `mpy-rs generate` in `{}`",
-            manifest_paths.path.display()
-        );
-    };
-    let port_dir = port.path_canonicalized(&manifest_paths.dir)?;
+    let mp_dir = manifest
+        .micropython
+        .path_canonicalized(&manifest_paths.dir)?;
+    let port_dir = manifest.port.path_canonicalized(&manifest_paths.dir)?;
 
     let py_dir = mp_dir.join("py");
 
