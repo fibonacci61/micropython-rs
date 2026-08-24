@@ -1,11 +1,12 @@
 use core::{
+    error::Error,
+    fmt::Display,
     marker::PhantomData,
+    mem::MaybeUninit,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 use micropython_sys::{gc_init, mp_deinit, mp_init};
-
-use crate::gc::Heap;
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -19,59 +20,95 @@ pub fn generation() -> u64 {
 }
 
 #[derive(Default)]
-pub struct VmBuilder {
+pub struct VmData<'h> {
     #[cfg(micropython = "MICROPY_ENABLE_GC")]
-    heap: Option<Heap>,
+    pub heap: Option<&'h mut [MaybeUninit<u8>]>,
+    pub _heap_phantom: PhantomData<&'h mut [MaybeUninit<u8>]>,
 }
 
-pub struct Vm {
-    #[cfg(micropython = "MICROPY_ENABLE_GC")]
-    heap: Option<Heap>,
+#[derive(Default)]
+pub struct VmBuilder<'h> {
+    data: VmData<'h>,
+}
+
+struct VmInner<'h> {
+    data: VmData<'h>,
+}
+
+pub struct Vm<'h> {
+    inner: Option<VmInner<'h>>,
+}
+
+pub struct Deinitialized<'h> {
+    inner: Option<VmInner<'h>>,
 }
 
 pub struct MicroPython<'py> {
-    _vm: PhantomData<&'py Vm>,
+    _vm: PhantomData<Vm<'py>>,
     _not_send: PhantomData<*mut ()>,
 }
 
-pub struct Deinitialized {
-    #[cfg(micropython = "MICROPY_ENABLE_GC")]
-    heap: Option<Heap>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InitError;
+
+impl Display for InitError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("vm currently initialized, cannot initialize again")
+    }
 }
 
-impl VmBuilder {
-    #[cfg(micropython = "MICROPY_ENABLE_GC")]
-    pub fn heap(mut self, heap: Heap) -> Self {
-        self.heap = Some(heap);
-        self
-    }
+impl Error for InitError {}
 
-    pub fn build(self) -> Vm {
+impl<'h> VmInner<'h> {
+    fn init(&mut self) -> Result<(), InitError> {
         if ACTIVE
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_err()
         {
-            panic!("vm currently initialized, cannot initialize again");
+            return Err(InitError);
         }
 
         #[cfg(micropython = "MICROPY_ENABLE_GC")]
-        if let Some(heap) = self.heap.as_ref() {
-            unsafe { gc_init(heap.start().as_ptr().cast(), heap.end().as_ptr().cast()) };
+        if let Some(heap) = self.data.heap.as_mut() {
+            unsafe {
+                gc_init(
+                    heap.as_mut_ptr().cast(),
+                    heap.as_mut_ptr().add(heap.len()).cast(),
+                )
+            };
         }
 
         unsafe { mp_init() };
 
         GENERATION.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
 
-        Vm {
-            #[cfg(micropython = "MICROPY_ENABLE_GC")]
-            heap: self.heap,
-        }
+    fn deinit(&mut self) {
+        unsafe { mp_deinit() };
+        ACTIVE.store(false, Ordering::Release);
     }
 }
 
-impl Vm {
-    pub fn builder() -> VmBuilder {
+impl<'h> VmBuilder<'h> {
+    #[cfg(micropython = "MICROPY_ENABLE_GC")]
+    pub fn heap(mut self, heap: &'h mut [MaybeUninit<u8>]) -> Self {
+        self.data.heap = Some(heap);
+        self
+    }
+
+    pub fn build(self) -> Result<Vm<'h>, InitError> {
+        let mut vm_inner = VmInner { data: self.data };
+        vm_inner.init()?;
+
+        Ok(Vm {
+            inner: Some(vm_inner),
+        })
+    }
+}
+
+impl<'h> Vm<'h> {
+    pub fn builder() -> VmBuilder<'h> {
         VmBuilder::default()
     }
 
@@ -82,21 +119,37 @@ impl Vm {
         }
     }
 
-    pub fn deinit(self) -> Deinitialized {
-        unsafe { mp_deinit() };
-        ACTIVE.store(false, Ordering::Release);
-        Deinitialized {
-            #[cfg(micropython = "MICROPY_ENABLE_GC")]
-            heap: self.heap,
+    pub fn deinit(mut self) -> Deinitialized<'h> {
+        let mut inner = self.inner.take().unwrap();
+        inner.deinit();
+        Deinitialized { inner: Some(inner) }
+    }
+}
+
+impl<'h> Deinitialized<'h> {
+    pub fn reinit(mut self) -> Result<Vm<'h>, InitError> {
+        let mut inner = self.inner.take().unwrap();
+        inner.init()?;
+        Ok(Vm { inner: Some(inner) })
+    }
+
+    pub fn into_inner(mut self) -> VmData<'h> {
+        self.inner.take().unwrap().data
+    }
+}
+
+impl Drop for Vm<'_> {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.as_mut() {
+            inner.deinit();
         }
     }
 }
 
-impl Deinitialized {
-    pub fn reinit(self) -> Vm {
-        Vm {
-            #[cfg(micropython = "MICROPY_ENABLE_GC")]
-            heap: self.heap,
+impl Drop for Deinitialized<'_> {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.as_mut() {
+            inner.deinit();
         }
     }
 }
