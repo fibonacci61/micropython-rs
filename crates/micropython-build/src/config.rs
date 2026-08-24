@@ -3,11 +3,10 @@ pub mod names;
 pub mod tail_parser;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{io::Write, process::Command};
 
-use anyhow::{Context, anyhow, bail};
-use micropython_manifest::{find_manifest_from, parse_manifest};
+use anyhow::{Context, bail};
 use tempfile::NamedTempFile;
 
 use crate::config::expression::{ConfigValue, EvaluatedValue, evaluate_config};
@@ -87,16 +86,7 @@ fn selected_enum_constant<'a>(
     })
 }
 
-pub fn process_mp_config() -> anyhow::Result<Config> {
-    let cargo_manifest_dir =
-        std::env::var_os("CARGO_MANIFEST_DIR").ok_or(anyhow!("`CARGO_MANIFEST_DIR` is not set"))?;
-
-    let manifest_paths = find_manifest_from(PathBuf::from(cargo_manifest_dir))?;
-    let manifest = parse_manifest(&manifest_paths.path)?;
-
-    let port_dir = manifest.port.path_canonicalized(&manifest_paths.dir)?;
-    let mp_dir = manifest.port.path_canonicalized(&manifest_paths.dir)?;
-
+pub fn process_mp_config(mp_dir: &Path, port_dir: &Path) -> anyhow::Result<Config> {
     let mut wrapper_file = tempfile::Builder::new()
         .suffix(".c")
         .tempfile()
@@ -106,7 +96,7 @@ pub fn process_mp_config() -> anyhow::Result<Config> {
         .context("couldn't write to temporary file")?;
 
     let depfile_path = NamedTempFile::new()
-        .context("couldn't crate temporary file")?
+        .context("couldn't create temporary file")?
         .into_temp_path();
 
     let mut cmd = Command::new("clang");

@@ -5,3 +5,4 @@ edition = "2024"
 
 [build-dependencies]
 micropython-build = { path = "../../../crates/micropython-build" }
+micropython-manifest = { path = "../../../crates/micropython-manifest" }

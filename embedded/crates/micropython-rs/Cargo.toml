@@ -9,3 +9,4 @@ thiserror = { version = "2.0.20", default-features = false }
 
 [build-dependencies]
 micropython-build = { path = "../../../crates/micropython-build" }
+micropython-manifest = { path = "../../../crates/micropython-manifest" }
