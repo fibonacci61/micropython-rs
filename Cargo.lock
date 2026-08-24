@@ -436,9 +436,19 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bindgen",
+ "micropython-manifest",
  "mpy-rs",
  "regex",
  "tempfile",
+]
+
+[[package]]
+name = "micropython-manifest"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -455,12 +465,12 @@ dependencies = [
  "blake3",
  "clap",
  "ignore",
+ "micropython-manifest",
  "regex",
  "serde",
  "serde_json",
  "tar",
  "tempfile",
- "toml",
  "walkdir",
  "zstd",
 ]

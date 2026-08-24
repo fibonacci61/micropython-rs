@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::{io::Write, process::Command};
 
 use anyhow::{Context, anyhow, bail};
-use mpy_rs::manifest::{find_manifest_from, parse_manifest};
+use micropython_manifest::{find_manifest_from, parse_manifest};
 use tempfile::NamedTempFile;
 
 use crate::config::expression::{ConfigValue, EvaluatedValue, evaluate_config};

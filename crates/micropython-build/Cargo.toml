@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 bindgen = "0.72.1"
+micropython-manifest = { path = "../micropython-manifest" }
 mpy-rs = { path = "../mpy-rs", default-features = false }
 regex = "1.13.1"
 tempfile = "3.27.0"

@@ -14,7 +14,7 @@ use walkdir::WalkDir;
 
 use crate::generate::c::{PreprocessorContext, scan_c_cached};
 use crate::generate::rust::scan_rust_cached;
-use crate::manifest::{Crate, find_manifest, parse_manifest};
+use micropython_manifest::{Crate, find_manifest, parse_manifest};
 
 pub fn gen_version_header(py_dir: &Path, genhdr_dir: &Path) -> anyhow::Result<()> {
     let makeversionhdr_path = py_dir.join("makeversionhdr.py");

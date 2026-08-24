@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, anyhow};
-use mpy_rs::manifest::{find_manifest_from, parse_manifest};
+use micropython_manifest::{find_manifest_from, parse_manifest};
 
 pub fn generate<T: Into<String>>(wrapper: T) -> anyhow::Result<()> {
     let out_dir =

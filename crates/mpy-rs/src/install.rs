@@ -1,4 +1,4 @@
-use crate::manifest::{ManifestPaths, find_manifest};
+use micropython_manifest::{ManifestPaths, find_manifest};
 
 const EMBEDDED_TAR_ZST: &[u8] = include_bytes!(env!("EMBEDDED_TAR_ZST"));
 
