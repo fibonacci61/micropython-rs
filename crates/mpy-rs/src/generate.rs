@@ -1,5 +1,5 @@
-pub mod c;
-pub mod rust;
+mod c;
+mod rust;
 
 use std::collections::HashMap;
 use std::fs::File;

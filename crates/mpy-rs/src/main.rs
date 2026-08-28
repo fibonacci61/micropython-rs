@@ -1,9 +1,13 @@
+mod generate;
+#[cfg(feature = "install")]
+mod install;
+
 use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 
-use mpy_rs::generate::generate;
+use crate::generate::generate;
 
 #[derive(Parser)]
 struct Cli {
