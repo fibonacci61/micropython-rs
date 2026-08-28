@@ -20,12 +20,6 @@ enum Command {
     Generate,
 }
 
-#[derive(Debug, Subcommand)]
-enum Generate {
-    Libs,
-    Headers,
-}
-
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     if let Some(chdir) = cli.chdir {
