@@ -8,7 +8,7 @@ use micropython_sys::{gc_init, mp_deinit, mp_init, mp_uint_t};
 use thiserror::Error;
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
-// cannot exceed `mp_uint_t::MAX`
+// cannot exceed mp_uint_t::MAX
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 pub fn active() -> bool {
@@ -16,7 +16,7 @@ pub fn active() -> bool {
 }
 
 pub fn generation() -> mp_uint_t {
-    // `GENERATION` is capped at `mp_uint_t::MAX`
+    // GENERATION is capped at mp_uint_t::MAX
     GENERATION.load(Ordering::Relaxed) as mp_uint_t
 }
 
@@ -34,6 +34,7 @@ pub struct VmBuilder<'h> {
 
 struct VmInner<'h> {
     data: VmData<'h>,
+    micropython: MicroPython,
 }
 
 pub struct Vm<'h> {
@@ -44,8 +45,7 @@ pub struct Deinitialized<'h> {
     inner: Option<VmInner<'h>>,
 }
 
-pub struct MicroPython<'py> {
-    _vm: PhantomData<Vm<'py>>,
+pub struct MicroPython {
     _not_send: PhantomData<*mut ()>,
 }
 
@@ -101,7 +101,12 @@ impl<'h> VmBuilder<'h> {
     }
 
     pub fn build(self) -> Result<Vm<'h>, InitError> {
-        let mut vm_inner = VmInner { data: self.data };
+        let mut vm_inner = VmInner {
+            data: self.data,
+            micropython: MicroPython {
+                _not_send: PhantomData,
+            },
+        };
         vm_inner.init()?;
 
         Ok(Vm {
@@ -115,11 +120,8 @@ impl<'h> Vm<'h> {
         VmBuilder::default()
     }
 
-    pub fn micropython<'py>(&'py self) -> MicroPython<'py> {
-        MicroPython {
-            _vm: PhantomData,
-            _not_send: PhantomData,
-        }
+    pub fn micropython(&mut self) -> &mut MicroPython {
+        &mut self.inner.as_mut().unwrap().micropython
     }
 
     pub fn deinit(mut self) -> Deinitialized<'h> {
@@ -153,6 +155,14 @@ impl Drop for Deinitialized<'_> {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_mut() {
             inner.deinit();
+        }
+    }
+}
+
+impl MicroPython {
+    pub unsafe fn new() -> Self {
+        Self {
+            _not_send: PhantomData,
         }
     }
 }
