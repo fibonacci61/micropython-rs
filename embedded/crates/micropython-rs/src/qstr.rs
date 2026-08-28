@@ -16,15 +16,6 @@ impl Qstr {
 }
 
 #[macro_export]
-#[cfg(not(micropython_rs_qstr_scan))]
-macro_rules! qstr {
-    ($q:ident) => {
-        // TODO: implement as proc macro in micropython-macros
-        todo!()
-    };
-}
-
-#[macro_export]
 #[cfg(micropython_rs_qstr_scan)]
 macro_rules! qstr {
     ($q:ident) => {
