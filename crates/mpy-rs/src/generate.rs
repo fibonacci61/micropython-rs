@@ -1,4 +1,5 @@
 mod c;
+mod cc_search;
 mod rust;
 
 use std::collections::HashMap;
@@ -13,6 +14,7 @@ use regex::bytes::Regex;
 use walkdir::WalkDir;
 
 use crate::generate::c::{PreprocessorContext, scan_c_cached};
+use crate::generate::cc_search::Cc;
 use crate::generate::rust::scan_rust_cached;
 use micropython_manifest::{Crate, find_manifest, parse_manifest};
 
@@ -106,6 +108,7 @@ pub fn cache_path(cache_dir: &Path, absolute_path: &Path) -> PathBuf {
 }
 
 pub fn gen_qstrdefs(
+    cc: &Cc,
     py_dir: &Path,
     genhdr_dir: &Path,
     port_dir: PathBuf,
@@ -155,26 +158,32 @@ pub fn gen_qstrdefs(
     collected_qstrdefs_quoted.flush()?;
 
     let pp_context = PreprocessorContext::new(
+        cc,
         collected_qstrdefs_quoted.path().into(),
         port_dir,
         mp_dir,
         header_dir,
     );
-    let mut clang = pp_context
-        .clang_command()
+    let mut pp = pp_context
+        .as_command()
         .stdout(Stdio::piped())
         .spawn()
-        .context("couldn't spawn `clang`")?;
+        .with_context(|| {
+            format!(
+                "couldn't spawn C compiler `{}`",
+                pp_context.program().display()
+            )
+        })?;
 
-    let clang_stdout = clang.stdout.take().unwrap();
-    let clang_reader = BufReader::new(clang_stdout);
+    let pp_stdout = pp.stdout.take().unwrap();
+    let pp_reader = BufReader::new(pp_stdout);
 
     let qstrdefs_preprocessed_h_path = genhdr_dir.join("qstrdefs.preprocessed.h");
     let qstrdefs_preprocessed_h = File::create(&qstrdefs_preprocessed_h_path)
         .with_context(|| format!("couldn't open `{}`", qstrdefs_preprocessed_h_path.display()))?;
     let mut writer = BufWriter::new(qstrdefs_preprocessed_h);
 
-    for line in clang_reader.lines() {
+    for line in pp_reader.lines() {
         let line = line?;
 
         if q_re.is_match(line.as_bytes()) {
@@ -191,9 +200,9 @@ pub fn gen_qstrdefs(
         })?;
     }
 
-    let status = clang.wait()?;
+    let status = pp.wait()?;
     if !status.success() {
-        bail!("`clang` failed [{status}]");
+        bail!("`{}` failed [{status}]", pp_context.program().display());
     }
 
     let qstrdefs_generated_h_path = genhdr_dir.join("qstrdefs.generated.h");
@@ -261,9 +270,22 @@ pub fn gen_root_pointers(genhdr_dir: &Path, items: &[ScanItem]) -> anyhow::Resul
     Ok(())
 }
 
-pub fn generate() -> anyhow::Result<()> {
+#[derive(Debug, clap::Args)]
+pub struct Generate {
+    /// C compiler
+    #[arg(long)]
+    cc: Option<String>,
+    /// Target triple
+    #[arg(long)]
+    target: Option<String>,
+}
+
+pub fn generate(Generate { cc, target }: Generate) -> anyhow::Result<()> {
     let manifest_paths = find_manifest()?;
     let manifest = parse_manifest(&manifest_paths.path)?;
+
+    let raw_cc = cc_search::get_raw_cc(cc, target)?;
+    let cc = cc_search::get_cc(&raw_cc)?;
 
     let mp_dir = manifest
         .micropython
@@ -307,6 +329,7 @@ pub fn generate() -> anyhow::Result<()> {
         .chain([py_dir.join("mpconfig.h"), port_dir.join("mpconfigport.h")])
     {
         items.push(scan_c_cached(
+            &cc,
             c_src,
             port_dir.clone(),
             mp_dir.clone(),
@@ -322,7 +345,15 @@ pub fn generate() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    gen_qstrdefs(&py_dir, &genhdr_dir, port_dir, mp_dir, header_dir, &items)?;
+    gen_qstrdefs(
+        &cc,
+        &py_dir,
+        &genhdr_dir,
+        port_dir,
+        mp_dir,
+        header_dir,
+        &items,
+    )?;
     gen_moduledefs(&py_dir, &genhdr_dir, &items)?;
     gen_root_pointers(&genhdr_dir, &items)?;
 

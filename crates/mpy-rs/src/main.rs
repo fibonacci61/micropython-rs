@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 
-use crate::generate::generate;
+use crate::generate::{Generate, generate};
 
 #[derive(Parser)]
 struct Cli {
@@ -21,7 +21,7 @@ struct Cli {
 enum Command {
     #[cfg(feature = "install")]
     Install,
-    Generate,
+    Generate(Generate),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -33,7 +33,7 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         #[cfg(feature = "install")]
-        Command::Install => mpy_rs::install::install(),
-        Command::Generate => generate(),
+        Command::Install => install::install(),
+        Command::Generate(g) => generate(g),
     }
 }

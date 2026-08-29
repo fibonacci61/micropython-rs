@@ -11,7 +11,7 @@ use regex::bytes::Regex;
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::generate::{ScanItem, cache_path};
+use crate::generate::{ScanItem, cache_path, cc_search::Cc};
 use micropython_depfile::Depfile;
 
 #[derive(Serialize, Deserialize)]
@@ -62,36 +62,63 @@ impl Regexps {
 }
 
 pub struct PreprocessorContext {
+    program: OsString,
     args: Vec<OsString>,
 }
 
 impl PreprocessorContext {
-    pub fn new(src_path: PathBuf, port_dir: PathBuf, mp_dir: PathBuf, header_dir: PathBuf) -> Self {
+    pub fn new(
+        cc: &Cc,
+        src_path: PathBuf,
+        port_dir: PathBuf,
+        mp_dir: PathBuf,
+        header_dir: PathBuf,
+    ) -> Self {
         Self {
-            args: vec![
-                OsString::from("-E"),
-                OsString::from("-I"),
-                port_dir.into_os_string(),
-                OsString::from("-I"),
-                mp_dir.into_os_string(),
-                OsString::from("-I"),
-                header_dir.into_os_string(),
-                OsString::from("-DNO_QSTR"),
-                src_path.into_os_string(),
-            ],
+            program: OsString::from(cc.program),
+            args: cc
+                .args
+                .iter()
+                .map(|arg| OsString::from(arg))
+                .chain([
+                    OsString::from("-E"),
+                    OsString::from("-I"),
+                    port_dir.into_os_string(),
+                    OsString::from("-I"),
+                    mp_dir.into_os_string(),
+                    OsString::from("-I"),
+                    header_dir.into_os_string(),
+                    OsString::from("-DNO_QSTR"),
+                    src_path.into_os_string(),
+                ])
+                .collect(),
         }
     }
 
-    pub fn clang_command(&self) -> Command {
-        let mut cmd = Command::new("clang");
+    pub fn program(&self) -> &OsString {
+        &self.program
+    }
+
+    pub fn as_command(&self) -> Command {
+        let mut cmd = Command::new(&self.program);
         cmd.args(&self.args);
         cmd
     }
 
-    pub fn blake3_hash(&self, hasher: &mut Hasher) {
-        self.args.iter().for_each(|arg| {
-            hasher.update(arg.as_encoded_bytes());
-        });
+    pub fn hash_blake3(&self, hasher: &mut Hasher) {
+        fn update_field(hasher: &mut Hasher, value: &[u8]) {
+            // prefix each value with its length so that the same content across different strings
+            // hashes differently
+            hasher.update(&(value.len() as u64).to_le_bytes());
+            hasher.update(value);
+        }
+
+        // hasher.update(b"mpy-rs preprocessor context\0v1");
+        update_field(hasher, self.program.as_encoded_bytes());
+        hasher.update(&(self.args.len() as u64).to_le_bytes());
+        for arg in &self.args {
+            update_field(hasher, arg.as_encoded_bytes());
+        }
     }
 }
 
@@ -104,16 +131,22 @@ pub fn scan_c(
         .into_temp_path();
 
     let output = pp_context
-        .clang_command()
+        .as_command()
         .arg("-MMD")
         .arg("-MF")
         .arg(&depfile_path)
         .output()
-        .context("couldn't spawn `clang`")?;
+        .with_context(|| {
+            format!(
+                "couldn't spawn C compiler `{}`",
+                pp_context.program.display()
+            )
+        })?;
 
     if !output.status.success() {
         bail!(
-            "`clang` failed [{}]: {}",
+            "`{}` failed [{}]: {}",
+            pp_context.program.display(),
             output.status,
             String::from_utf8_lossy_owned(output.stderr)
         );
@@ -122,7 +155,7 @@ pub fn scan_c(
     let depfile = micropython_depfile::parse(
         &std::fs::read(depfile_path).context("couldn't read temporary file")?,
     )
-    .context("couldn't parse `clang` depfile")?;
+    .context("couldn't parse C depfile")?;
 
     let preprocessed_src = output.stdout;
     let mut qstrs = Vec::new();
@@ -180,7 +213,7 @@ pub fn cache_c(
 ) -> anyhow::Result<ScanItem> {
     let context_hash = {
         let mut hasher = Hasher::new();
-        pp_context.blake3_hash(&mut hasher);
+        pp_context.hash_blake3(&mut hasher);
         hasher.finalize()
     };
 
@@ -234,7 +267,7 @@ pub fn is_cache_valid(
 
     let context_hash = {
         let mut hasher = Hasher::new();
-        pp_context.blake3_hash(&mut hasher);
+        pp_context.hash_blake3(&mut hasher);
         hasher.finalize()
     };
     let cached_context_hash =
@@ -248,6 +281,7 @@ pub fn is_cache_valid(
 }
 
 pub fn scan_c_cached(
+    cc: &Cc,
     src_path: PathBuf,
     port_dir: PathBuf,
     mp_dir: PathBuf,
@@ -270,7 +304,7 @@ pub fn scan_c_cached(
         }
     };
 
-    let pp_context = PreprocessorContext::new(src_path.clone(), port_dir, mp_dir, header_dir);
+    let pp_context = PreprocessorContext::new(cc, src_path.clone(), port_dir, mp_dir, header_dir);
     let item = if let Some(cache) = cache
         && is_cache_valid(&cache, &pp_context, hashes)?
     {
