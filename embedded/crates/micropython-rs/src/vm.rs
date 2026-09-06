@@ -1,23 +1,16 @@
 use core::{
     marker::PhantomData,
     mem::MaybeUninit,
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
-use micropython_sys::{gc_init, mp_deinit, mp_init, mp_uint_t};
+use micropython_sys::{gc_init, mp_deinit, mp_init};
 use thiserror::Error;
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
-// cannot exceed mp_uint_t::MAX
-static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 pub fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
-}
-
-pub fn generation() -> mp_uint_t {
-    // GENERATION is capped at mp_uint_t::MAX
-    GENERATION.load(Ordering::Relaxed) as mp_uint_t
 }
 
 #[derive(Default)]
@@ -53,11 +46,6 @@ pub struct MicroPython {
 pub enum InitError {
     #[error("vm currently initialized, cannot initialize again before deinit")]
     CurrentlyInitialized,
-    #[error(
-        "generation counter overflow; maximum number of initializations was reached ({})",
-        mp_uint_t::MAX
-    )]
-    GenerationOverflow,
 }
 
 impl<'h> VmInner<'h> {
@@ -68,10 +56,6 @@ impl<'h> VmInner<'h> {
         {
             return Err(InitError::CurrentlyInitialized);
         }
-
-        GENERATION
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |g| g.checked_add(1))
-            .map_err(|_| InitError::GenerationOverflow)?;
 
         #[cfg(micropython = "MICROPY_ENABLE_GC")]
         if let Some(heap) = self.data.heap.as_mut() {
