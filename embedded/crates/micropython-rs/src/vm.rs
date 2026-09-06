@@ -35,7 +35,7 @@ pub struct Vm<'h> {
 }
 
 pub struct Deinitialized<'h> {
-    inner: Option<VmInner<'h>>,
+    inner: VmInner<'h>,
 }
 
 pub struct MicroPython {
@@ -111,31 +111,24 @@ impl<'h> Vm<'h> {
     pub fn deinit(mut self) -> Deinitialized<'h> {
         let mut inner = self.inner.take().unwrap();
         inner.deinit();
-        Deinitialized { inner: Some(inner) }
+        Deinitialized { inner }
     }
 }
 
 impl<'h> Deinitialized<'h> {
     pub fn reinit(mut self) -> Result<Vm<'h>, InitError> {
-        let mut inner = self.inner.take().unwrap();
-        inner.init()?;
-        Ok(Vm { inner: Some(inner) })
+        self.inner.init()?;
+        Ok(Vm {
+            inner: Some(self.inner),
+        })
     }
 
-    pub fn into_inner(mut self) -> VmData<'h> {
-        self.inner.take().unwrap().data
+    pub fn into_data(self) -> VmData<'h> {
+        self.inner.data
     }
 }
 
 impl Drop for Vm<'_> {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_mut() {
-            inner.deinit();
-        }
-    }
-}
-
-impl Drop for Deinitialized<'_> {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_mut() {
             inner.deinit();
