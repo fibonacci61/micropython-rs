@@ -18,7 +18,7 @@ impl Qstr {
 #[macro_export]
 #[cfg(micropython_rs_qstr_scan)]
 macro_rules! qstr {
-    ($q:ident) => {
-        ("__MICROPYTHON_RS_QSTR_VALUE__", stringify!($q))
+    ($q:literal) => {
+        ("__MICROPYTHON_RS_QSTR_VALUE__", $q)
     };
 }

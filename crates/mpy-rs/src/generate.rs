@@ -15,8 +15,8 @@ use walkdir::WalkDir;
 
 use crate::generate::c::{PreprocessorContext, scan_c_cached};
 use crate::generate::cc_search::Cc;
-use crate::generate::rust::scan_rust_cached;
-use micropython_manifest::{Crate, find_manifest, parse_manifest};
+use crate::generate::rust::scan_crate;
+use micropython_manifest::{find_manifest, parse_manifest};
 
 pub fn gen_version_header(py_dir: &Path, genhdr_dir: &Path) -> anyhow::Result<()> {
     let makeversionhdr_path = py_dir.join("makeversionhdr.py");
@@ -42,19 +42,13 @@ pub fn gen_version_header(py_dir: &Path, genhdr_dir: &Path) -> anyhow::Result<()
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectSearch {
     pub c_srcs: Vec<PathBuf>,
-    pub rust_srcs: Vec<PathBuf>,
 }
 
-pub fn search_project(
-    manifest_dir: &Path,
-    py_dir: &Path,
-    crates: &[Crate],
-) -> anyhow::Result<ProjectSearch> {
+pub fn search_project(manifest_dir: &Path, py_dir: &Path) -> anyhow::Result<ProjectSearch> {
     assert!(manifest_dir.is_absolute());
     assert!(py_dir.is_absolute());
 
     let mut c_srcs = Vec::new();
-    let mut rust_srcs = Vec::new();
 
     for entry in WalkDir::new(py_dir).max_depth(1).into_iter() {
         let entry = match entry {
@@ -70,29 +64,7 @@ pub fn search_project(
         }
     }
 
-    // cr7 suiii
-    for cr8 in crates {
-        let absolute_crate_path = manifest_dir.join(&cr8.path).canonicalize()?;
-
-        let src_dir = absolute_crate_path.join("src");
-        for entry in WalkDir::new(&src_dir).into_iter() {
-            let entry = match entry {
-                Ok(v) => v,
-                Err(e) => {
-                    return Err(anyhow::Error::from(e).context(format!(
-                        "couldn't scan crate `{}`",
-                        absolute_crate_path.display()
-                    )));
-                }
-            };
-
-            if entry.file_type().is_file() && entry.path().extension() == Some(OsStr::new("rs")) {
-                rust_srcs.push(entry.into_path());
-            }
-        }
-    }
-
-    Ok(ProjectSearch { c_srcs, rust_srcs })
+    Ok(ProjectSearch { c_srcs })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -270,6 +242,25 @@ pub fn gen_root_pointers(genhdr_dir: &Path, items: &[ScanItem]) -> anyhow::Resul
     Ok(())
 }
 
+struct ScanMarker {
+    path: PathBuf,
+}
+
+impl ScanMarker {
+    pub fn new(manifest_dir: &Path) -> std::io::Result<Self> {
+        let path = manifest_dir.join("micropython-rs/SCANNING");
+        File::create(&path)?;
+
+        Ok(ScanMarker { path })
+    }
+}
+
+impl Drop for ScanMarker {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 #[derive(Debug, clap::Args)]
 pub struct Generate {
     /// C compiler
@@ -284,7 +275,7 @@ pub fn generate(Generate { cc, target }: Generate) -> anyhow::Result<()> {
     let manifest_paths = find_manifest()?;
     let manifest = parse_manifest(&manifest_paths.path)?;
 
-    let raw_cc = cc_search::get_raw_cc(cc, target)?;
+    let raw_cc = cc_search::get_raw_cc(cc.as_deref(), target.as_deref())?;
     let cc = cc_search::get_cc(&raw_cc)?;
 
     let mp_dir = manifest
@@ -302,22 +293,20 @@ pub fn generate(Generate { cc, target }: Generate) -> anyhow::Result<()> {
 
     gen_version_header(&py_dir, &genhdr_dir)?;
 
-    let project_search = search_project(&manifest_paths.dir, &py_dir, &manifest.crates)?;
+    let project_search = search_project(&manifest_paths.dir, &py_dir)?;
     let mut items = Vec::new();
 
     let cache_dir = header_dir.join("cache");
     std::fs::create_dir_all(&cache_dir)
         .with_context(|| format!("couldn't create directory `{}`", cache_dir.display()))?;
-    let mut cache_miss = false;
 
-    let rust_regexps = rust::Regexps::new();
-    for rust_src in project_search.rust_srcs.iter() {
-        items.push(scan_rust_cached(
-            rust_src,
-            &rust_regexps,
-            &cache_dir,
-            &mut cache_miss,
-        )?);
+    {
+        let _scan_marker =
+            ScanMarker::new(&manifest_paths.dir).context("couldn't create scan marker file")?;
+
+        for cr8 in manifest.crates.iter() {
+            items.push(scan_crate(&cr8.path, target.as_deref())?);
+        }
     }
 
     let c_regexps = c::Regexps::new();
@@ -336,13 +325,8 @@ pub fn generate(Generate { cc, target }: Generate) -> anyhow::Result<()> {
             header_dir.clone(),
             &c_regexps,
             &cache_dir,
-            &mut cache_miss,
             &mut hashes,
         )?);
-    }
-
-    if !cache_miss {
-        return Ok(());
     }
 
     gen_qstrdefs(

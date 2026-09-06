@@ -35,10 +35,10 @@ fn get_env_var(key: impl AsRef<str>) -> anyhow::Result<Option<String>> {
     }
 }
 
-pub fn get_raw_cc(cc: Option<String>, target: Option<String>) -> anyhow::Result<RawCc> {
+pub fn get_raw_cc(cc: Option<&str>, target: Option<&str>) -> anyhow::Result<RawCc> {
     if let Some(cc) = cc {
         return Ok(RawCc {
-            s: cc,
+            s: cc.to_string(),
             source: RawCcSource::CliArg,
         });
     }

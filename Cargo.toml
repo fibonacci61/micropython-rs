@@ -1,4 +1,5 @@
 [workspace]
 members = ["crates/*"]
-exclude = ["embedded/crates/micropython-sys", "embedded/crates/micropython-rs", "embedded/crates/micropython-macros"]
+# exclude = ["embedded/crates/micropython-sys", "embedded/crates/micropython-rs", "embedded/crates/micropython-macros"]
+exclude = ["embedded/crates"]
 resolver = "3"

@@ -10,3 +10,4 @@ micropython-depfile = { path = "../micropython-depfile" }
 micropython-manifest = { path = "../micropython-manifest" }
 regex = "1.13.1"
 tempfile = "3.27.0"
+micropython-scan-cfg-propogation-test = { path = "../../../micropython-scan-cfg-propogation-test" }

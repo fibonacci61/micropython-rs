@@ -1,146 +1,143 @@
-use std::path::{Path, PathBuf};
+use std::{borrow::Cow, ffi::OsStr, path::Path, process::Command};
 
-use anyhow::Context;
-use blake3::Hash;
-use regex::bytes::Regex;
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, bail};
+use syn::{
+    Expr, Ident, Lit, LitStr, Token,
+    parse::{Parse, ParseStream},
+    punctuated::Punctuated,
+    visit::Visit,
+};
 
-use crate::generate::{ScanItem, cache_path};
+use crate::generate::ScanItem;
 
-#[derive(Serialize, Deserialize)]
-pub struct RustCacheItem {
-    pub src_path: PathBuf,
-    pub src_hash: String,
-    pub qstrs: Vec<String>,
-    pub moduledefs: Vec<String>,
-    pub root_pointers: Vec<String>,
+struct FormatArgsBody {
+    #[allow(dead_code)]
+    format: LitStr,
+    arguments: Punctuated<FormatArgument, Token![,]>,
 }
 
-pub struct Regexps {
-    qstr_re: Regex,
-    method_ident_re: Regex,
-    constant_ident_re: Regex,
+enum FormatArgument {
+    Positional(Expr),
+    Named {
+        #[allow(dead_code)]
+        name: Ident,
+        value: Expr,
+    },
 }
 
-impl Regexps {
-    pub fn new() -> Self {
-        let qstr_re = Regex::new(r#"qstr!\(([a-zA-Z_][a-zA-Z0-9_]*)\)"#).unwrap();
-        let method_ident_re = Regex::new(
-            r#"#\[method.*]\s*(?:#\[stub.*\])?\s*(?:pub\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)"#,
-        )
-        .unwrap();
-        let constant_ident_re = Regex::new(
-            r#"#\[constant\]\s*(?:#\[stub.*\])?\s*(?:pub\s+)?const\s+([a-zA-Z_][a-zA-Z0-9_]*)"#,
-        )
-        .unwrap();
-
-        Self {
-            qstr_re,
-            method_ident_re,
-            constant_ident_re,
+impl FormatArgument {
+    fn value(&self) -> &Expr {
+        match self {
+            Self::Positional(value) | Self::Named { value, .. } => value,
         }
     }
 }
 
-pub fn scan_rust(contents: &[u8], regexps: &Regexps) -> anyhow::Result<ScanItem> {
-    let mut qstrs = Vec::new();
-    for cap in regexps
-        .qstr_re
-        .captures_iter(contents)
-        .chain(regexps.method_ident_re.captures_iter(contents))
-        .chain(regexps.constant_ident_re.captures_iter(contents))
-    {
-        qstrs.push(String::from_utf8(cap[1].to_vec()).with_context(|| {
-            format!(
-                "couldn't decode qstr `{}` as UTF-8",
-                String::from_utf8_lossy(&cap[1])
-            )
-        })?);
+impl Parse for FormatArgument {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        if input.peek(Ident) && input.peek2(Token![=]) {
+            Ok(Self::Named {
+                name: input.parse()?,
+                value: {
+                    input.parse::<Token![=]>()?;
+                    input.parse()?
+                },
+            })
+        } else {
+            Ok(Self::Positional(input.parse()?))
+        }
     }
-
-    Ok(ScanItem {
-        qstrs,
-        // TODO: `micropython-rs` currently cannot define modules or root pointers, add sacnning
-        // once bindings support exists
-        moduledefs: vec![],
-        root_pointers: vec![],
-    })
 }
 
-pub fn cache_rust(
-    item: ScanItem,
-    cache_path: &Path,
-    src_path: PathBuf,
-    src_hash: Hash,
-) -> anyhow::Result<ScanItem> {
-    let cache_item = RustCacheItem {
-        src_path,
-        src_hash: src_hash.to_hex().to_string(),
-        // temporarily moving values out of `item`
-        qstrs: item.qstrs,
-        moduledefs: item.moduledefs,
-        root_pointers: item.root_pointers,
-    };
+impl Parse for FormatArgsBody {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let format = input.parse()?;
+        let arguments = if input.is_empty() {
+            Punctuated::new()
+        } else {
+            input.parse::<Token![,]>()?;
+            Punctuated::parse_terminated(input)?
+        };
 
-    let cache_contents = serde_json::to_vec(&cache_item).with_context(|| {
+        Ok(Self { format, arguments })
+    }
+}
+
+#[derive(Default)]
+struct QstrFinder {
+    qstrs: Vec<String>,
+}
+
+impl<'ast> Visit<'ast> for QstrFinder {
+    fn visit_expr_tuple(&mut self, tuple: &'ast syn::ExprTuple) {
+        let mut elems = tuple.elems.iter();
+        let sentinel = elems.next();
+        let qstr = elems.next();
+
+        if let (Some(Expr::Lit(sentinel)), Some(Expr::Lit(qstr))) = (sentinel, qstr)
+            && let (Lit::Str(sentinel), Lit::Str(qstr)) = (&sentinel.lit, &qstr.lit)
+            && sentinel.value() == "__MICROPYTHON_RS_QSTR_VALUE__"
+        {
+            self.qstrs.push(qstr.value());
+        }
+
+        syn::visit::visit_expr_tuple(self, tuple);
+    }
+
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        if mac.path.is_ident("format_args")
+            && let Ok(body) = syn::parse2::<FormatArgsBody>(mac.tokens.clone())
+        {
+            for argument in &body.arguments {
+                self.visit_expr(argument.value());
+            }
+        }
+
+        syn::visit::visit_macro(self, mac);
+    }
+}
+
+pub fn scan_crate(crate_path: &Path, target: Option<&str>) -> anyhow::Result<ScanItem> {
+    let cargo = std::env::var_os("CARGO")
+        .map(|c| Cow::Owned(c))
+        .unwrap_or(Cow::Borrowed(OsStr::new("cargo")));
+    let mut command = Command::new(&cargo);
+    command
+        // setting in RUSTFLAGS instead of args makes it propagate
+        .env("RUSTFLAGS", "--cfg micropython_rs_qstr_scan")
+        .args(["rustc", "--quiet", "--", "-Zunpretty=expanded"])
+        .current_dir(crate_path);
+
+    if let Some(target) = target {
+        command.args(["--target", target]);
+    }
+
+    let output = command
+        .output()
+        .with_context(|| format!("couldn't spawn `{}`", cargo.display()))?;
+
+    if !output.status.success() {
+        bail!("{}", String::from_utf8_lossy_owned(output.stderr));
+    }
+
+    let expanded_crate = str::from_utf8(&output.stdout).with_context(|| {
         format!(
-            "couldn't serialize cache for `{}`",
-            cache_item.src_path.display()
+            "couldn't decode expanded crate `{}` as UTF-8",
+            crate_path.display()
         )
     })?;
-    std::fs::write(cache_path, cache_contents)
-        .with_context(|| format!("couldn't write cache `{}`", cache_path.display()))?;
+    let file = syn::parse_file(expanded_crate)
+        .with_context(|| format!("couldn't parse expanded crate `{}`", crate_path.display()))?;
+    let mut qstr_finder = QstrFinder::default();
+    for item in file.items {
+        qstr_finder.visit_item(&item);
+    }
 
-    // moving back
     Ok(ScanItem {
-        qstrs: cache_item.qstrs,
-        moduledefs: cache_item.moduledefs,
-        root_pointers: cache_item.root_pointers,
+        qstrs: dbg!(qstr_finder.qstrs),
+        // TODO: `micropython-rs` currently cannot define modules or root pointers, add sacnning
+        // once bindings support exists
+        moduledefs: Vec::new(),
+        root_pointers: Vec::new(),
     })
-}
-
-pub fn is_cache_valid(cache: &RustCacheItem, src_hash: Hash) -> anyhow::Result<bool> {
-    let cache_src_hash = Hash::from_hex(&cache.src_hash).context("couldn't decode hash")?;
-    Ok(cache_src_hash == src_hash)
-}
-
-pub fn scan_rust_cached(
-    src_path: &Path,
-    regexps: &Regexps,
-    cache_dir: &Path,
-    cache_miss: &mut bool,
-) -> anyhow::Result<ScanItem> {
-    let cache_path = cache_path(cache_dir, src_path);
-
-    let cache = match std::fs::read(&cache_path) {
-        Ok(v) => Some(
-            serde_json::from_slice::<RustCacheItem>(&v)
-                .with_context(|| format!("couldn't parse cache `{}`", cache_path.display()))?,
-        ),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => {
-            return Err(e).context(format!("couldn't read cache `{}`", cache_path.display()));
-        }
-    };
-
-    let src_contents = std::fs::read(src_path)
-        .with_context(|| format!("couldn't read Rust source `{}`", src_path.display()))?;
-    let src_hash = blake3::hash(&src_contents);
-
-    let item = if let Some(cache) = cache
-        && is_cache_valid(&cache, src_hash)?
-    {
-        ScanItem {
-            qstrs: cache.qstrs,
-            moduledefs: cache.moduledefs,
-            root_pointers: cache.root_pointers,
-        }
-    } else {
-        *cache_miss = true;
-        let item = scan_rust(&src_contents, &regexps)
-            .with_context(|| format!("couldn't scan Rust source `{}`", src_path.display()))?;
-        cache_rust(item, &cache_path, PathBuf::from(src_path), src_hash)?
-    };
-
-    Ok(item)
 }

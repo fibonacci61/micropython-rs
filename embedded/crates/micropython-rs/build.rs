@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("nlrshim_bindings.rs"),
     )?;
 
-    println!("cargo::rustc-check-cfg=cfg(micropython_rs_qstr_scan)");
+    micropython_build::scan::emit_scan_cfg(dbg!(&manifest_dir))?;
 
     Ok(())
 }

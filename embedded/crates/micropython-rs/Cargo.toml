@@ -11,5 +11,5 @@ thiserror = { version = "2.0.20", default-features = false }
 [build-dependencies]
 bindgen = "0.72.1"
 cc = "1.4.4"
-micropython-build = { path = "../../../crates/micropython-build" }
-micropython-manifest = { path = "../../../crates/micropython-manifest" }
+micropython-build = "0.1.0"
+micropython-manifest = "0.1.0"

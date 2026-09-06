@@ -288,7 +288,6 @@ pub fn scan_c_cached(
     header_dir: PathBuf,
     regexps: &Regexps,
     cache_dir: &Path,
-    cache_miss: &mut bool,
     hashes: &mut HashMap<PathBuf, Hash>,
 ) -> anyhow::Result<ScanItem> {
     let cache_path = cache_path(cache_dir, &src_path);
@@ -314,7 +313,6 @@ pub fn scan_c_cached(
             root_pointers: cache.root_pointers,
         }
     } else {
-        *cache_miss = true;
         let (item, depfile) = scan_c(&pp_context, regexps)
             .with_context(|| format!("couldn't scan C source `{}`", src_path.display()))?;
         cache_c(item, depfile, src_path, &pp_context, &cache_path, hashes)?
