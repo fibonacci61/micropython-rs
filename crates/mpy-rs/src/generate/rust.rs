@@ -134,7 +134,7 @@ pub fn scan_crate(crate_path: &Path, target: Option<&str>) -> anyhow::Result<Sca
     }
 
     Ok(ScanItem {
-        qstrs: dbg!(qstr_finder.qstrs),
+        qstrs: qstr_finder.qstrs,
         // TODO: `micropython-rs` currently cannot define modules or root pointers, add sacnning
         // once bindings support exists
         moduledefs: Vec::new(),
