@@ -6,8 +6,12 @@ use micropython_manifest::{ManifestPaths, find_manifest_from, parse_manifest};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cargo_manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let src_dir = cargo_manifest_dir.join("src");
+
+    let wrapper_path = src_dir.join("wrapper.h");
     let nlrshims_c_path = src_dir.join("nlrshims.c");
     let nlrshims_h_path = src_dir.join("nlrshims.h");
+    let staticshims_h_path = src_dir.join("staticshims.h");
+    let staticshims_c_path = src_dir.join("staticshims.h");
 
     let ManifestPaths {
         path: manifest_path,
@@ -24,26 +28,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // TODO: process depfile
     cc::Build::new()
-        .include(&port_dir)
-        .include(&mp_dir)
-        .include(&header_dir)
-        .include(&src_dir)
-        .file(&nlrshims_c_path)
+        .includes([&port_dir, &mp_dir, &header_dir, &src_dir])
+        .files([&nlrshims_c_path, &staticshims_c_path])
         .warnings(true)
-        .compile("nlrshims");
+        .compile("mprsshims");
 
     println!("cargo::rerun-if-changed={}", port_dir.display());
     println!("cargo::rerun-if-changed={}", mp_dir.display());
     println!("cargo::rerun-if-changed={}", header_dir.display());
+    println!("cargo::rerun-if-changed={}", wrapper_path.display());
     println!("cargo::rerun-if-changed={}", nlrshims_h_path.display());
     println!("cargo::rerun-if-changed={}", nlrshims_c_path.display());
+    println!("cargo::rerun-if-changed={}", staticshims_h_path.display());
+    println!("cargo::rerun-if-changed={}", staticshims_c_path.display());
 
     let bindings = bindgen::builder()
-        .header(nlrshims_h_path.into_string().unwrap())
+        .header(wrapper_path.into_string().unwrap())
         .use_core()
         .wrap_unsafe_ops(true)
-        .allowlist_type("nlrshim_.*")
-        .allowlist_function("nlrshim_.*")
+        .allowlist_type("mprs_.*")
+        .allowlist_function("mprs_.*")
         .clang_arg("-I")
         .clang_arg(mp_dir.into_string().unwrap())
         .clang_arg("-I")
@@ -51,9 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .clang_arg("-I")
         .clang_arg(header_dir.into_string().unwrap())
         .generate()?;
-    bindings.write_to_file(
-        PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("nlrshim_bindings.rs"),
-    )?;
+    bindings.write_to_file(PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("shims.rs"))?;
 
     micropython_build::scan::emit_scan_cfgs(&manifest_dir)?;
 

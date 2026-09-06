@@ -2,4 +2,4 @@
 
 #include "nlrshims.h"
 
-NLRSHIM_DEFINE_PTR(nlrshim_m_malloc, (size_t num_bytes), m_malloc(num_bytes));
+MPRS_NLRSHIM_DEFINE_PTR(mprs_nlrshim_m_malloc, (size_t num_bytes), m_malloc(num_bytes));

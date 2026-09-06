@@ -1,11 +1,15 @@
 use core::{
+    ffi::c_void,
     marker::PhantomData,
     mem::MaybeUninit,
+    ptr::NonNull,
     sync::atomic::{AtomicBool, Ordering},
 };
 
 use micropython_sys::{gc_init, mp_deinit, mp_init};
 use thiserror::Error;
+
+use crate::shims;
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -13,11 +17,18 @@ pub fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stack {
+    pub top: NonNull<c_void>,
+    pub size: usize,
+}
+
 #[derive(Default)]
 pub struct VmData<'h> {
     #[cfg(micropython = "MICROPY_ENABLE_GC")]
     pub heap: Option<&'h mut [MaybeUninit<u8>]>,
     pub _heap_phantom: PhantomData<&'h mut [MaybeUninit<u8>]>,
+    pub stack: Option<Stack>,
 }
 
 #[derive(Default)]
@@ -46,6 +57,8 @@ pub struct MicroPython {
 pub enum InitError {
     #[error("vm currently initialized, cannot initialize again before deinit")]
     CurrentlyInitialized,
+    #[error("stack is required")]
+    NoStack,
 }
 
 impl<'h> VmInner<'h> {
@@ -67,7 +80,11 @@ impl<'h> VmInner<'h> {
             };
         }
 
-        unsafe { mp_init() };
+        let stack = self.data.stack.ok_or(InitError::NoStack)?;
+        unsafe {
+            shims::mprs_cstack_init_with_top(stack.top.as_ptr(), stack.size);
+            mp_init()
+        }
         Ok(())
     }
 
@@ -78,9 +95,18 @@ impl<'h> VmInner<'h> {
 }
 
 impl<'h> VmBuilder<'h> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     #[cfg(micropython = "MICROPY_ENABLE_GC")]
     pub fn heap(mut self, heap: &'h mut [MaybeUninit<u8>]) -> Self {
         self.data.heap = Some(heap);
+        self
+    }
+
+    pub unsafe fn stack(mut self, stack: Stack) -> Self {
+        self.data.stack = Some(stack);
         self
     }
 
@@ -101,7 +127,7 @@ impl<'h> VmBuilder<'h> {
 
 impl<'h> Vm<'h> {
     pub fn builder() -> VmBuilder<'h> {
-        VmBuilder::default()
+        VmBuilder::new()
     }
 
     pub fn micropython(&mut self) -> &mut MicroPython {
