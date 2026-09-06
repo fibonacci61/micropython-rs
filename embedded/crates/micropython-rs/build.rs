@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("nlrshim_bindings.rs"),
     )?;
 
-    micropython_build::scan::emit_scan_cfg(dbg!(&manifest_dir))?;
+    micropython_build::scan::emit_scan_cfgs(&manifest_dir)?;
 
     Ok(())
 }

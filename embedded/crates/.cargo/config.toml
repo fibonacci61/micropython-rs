@@ -1,0 +1,3 @@
+[patch.crates-io]
+micropython-build = { path = "../../crates/micropython-build" }
+micropython-manifest = { path = "../../crates/micropython-manifest" }

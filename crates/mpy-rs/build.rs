@@ -18,8 +18,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let zstd_encoder = zstd::Encoder::new(file, 3)?;
     let mut tar = tar::Builder::new(zstd_encoder);
 
-    let walker = WalkBuilder::new(&embedded_dir).hidden(false).build();
-    for entry in walker {
+    let mut walker = WalkBuilder::new(&embedded_dir);
+    walker.hidden(true);
+    walker.add_ignore(workspace_dir.join("install.ignore"));
+    for entry in walker.build() {
         let entry = entry?;
         let path = entry.path();
 
