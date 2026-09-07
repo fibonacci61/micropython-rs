@@ -31,7 +31,7 @@ pub struct Immortal<T: 'static> {
 unsafe impl<T: Send> Send for Immortal<T> {}
 unsafe impl<T: Sync> Sync for Immortal<T> {}
 
-/// Object that restricts use of MicroPython for as long as its lifetime
+/// Object that temporarily restricts use of MicroPython
 pub struct Restricted<'py> {
     inner: mp_obj_t,
     _mp: &'py mut MicroPython,
