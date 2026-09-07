@@ -203,6 +203,10 @@ impl<'gc> Restricted<'gc> {
     where
         T: Class,
     {
+        if !tagging::is_ptr(self.inner) {
+            return None;
+        }
+
         let ptr = tagging::ptr_value(self.inner);
         let base = ptr as *const mp_obj_base_t;
         let type_match = unsafe { (*base).type_ == T::type_object() as *const _ };
