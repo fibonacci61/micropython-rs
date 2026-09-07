@@ -38,13 +38,19 @@ pub struct Restricted<'gc> {
 }
 
 pub struct Rooted<'r, T> {
-    inner: mp_obj_t,
-    _phantom: PhantomData<(&'r Obj, *const T)>,
+    inner: *const T,
+    _phantom: PhantomData<&'r Obj>,
 }
 
 pub struct Bound<'o, T> {
-    inner: mp_obj_t,
+    inner: *const T,
     _phantom: PhantomData<&'o T>,
+}
+
+pub trait RootProject: Sized {
+    type Projection<'r>;
+
+    fn project<'r>(root: Rooted<'r, Self>) -> Self::Projection<'r>;
 }
 
 impl Obj {
@@ -112,7 +118,7 @@ impl Obj {
 
     pub unsafe fn assume_rooted<T>(&self) -> Rooted<'_, T> {
         Rooted {
-            inner: self.inner,
+            inner: tagging::ptr_value(self.inner).cast(),
             _phantom: PhantomData,
         }
     }
@@ -126,7 +132,7 @@ impl Obj {
         'py: 'bound,
     {
         Bound {
-            inner: self.inner,
+            inner: tagging::ptr_value(self.inner).cast(),
             _phantom: PhantomData,
         }
     }
@@ -174,13 +180,33 @@ impl<'gc> Restricted<'gc> {
         // need to downcast
         todo!();
         // Bound {
-        //     inner: self.inner,
+        //     inner: tagging::ptr_value(self.inner).cast(),
         //     _phantom: PhantomData,
         // }
     }
 }
 
 impl<'r, T> Rooted<'r, T> {
+    pub unsafe fn project_unchecked<U>(
+        &self,
+        project: impl FnOnce(*const T) -> *const U,
+    ) -> Rooted<'r, U> {
+        Rooted {
+            inner: project(self.inner),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn project(&self) -> T::Projection<'r>
+    where
+        T: RootProject,
+    {
+        T::project(Rooted {
+            inner: self.inner,
+            _phantom: PhantomData,
+        })
+    }
+
     pub fn bind<'bound>(&'bound self, _mp: &'bound MicroPython) -> Bound<'bound, T> {
         Bound {
             inner: self.inner,
@@ -193,6 +219,6 @@ impl<'o, T> Deref for Bound<'o, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*tagging::ptr_value(self.inner).cast() }
+        unsafe { &*self.inner }
     }
 }

@@ -3,6 +3,16 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::Ident;
 
+mod root_project;
+
+#[proc_macro_derive(RootProject, attributes(root_project))]
+pub fn derive_root_project(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+    root_project::derive(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
 fn micropython_rs_path() -> TokenStream {
     match crate_name("micropython-rs").expect("micropython-rs") {
         FoundCrate::Itself => quote! { crate },
