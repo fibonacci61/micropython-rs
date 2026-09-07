@@ -1,6 +1,6 @@
 use core::{ffi::c_void, marker::PhantomData, ops::Deref};
 
-use micropython_sys::{mp_int_t, mp_obj_t, mp_uint_t};
+use micropython_sys::{mp_int_t, mp_obj_base_t, mp_obj_t, mp_obj_type_t, mp_uint_t};
 
 use crate::{gc::Gc, qstr::Qstr, vm::MicroPython};
 
@@ -45,6 +45,27 @@ pub struct Rooted<'r, T> {
 pub struct Bound<'o, T> {
     inner: *const T,
     _phantom: PhantomData<&'o T>,
+}
+
+/// A Rust struct representing pointer objects of a particular MicroPython type.
+///
+/// # Safety
+///
+/// Implementations must guarantee that:
+///
+/// - `Self` has a stable, C-compatible layout with an
+///   [`mp_obj_base_t`](micropython_sys::mp_obj_base_t) at offset zero.
+/// - Every valid pointer object with the exact type pointer returned by
+///   [`Self::type_object`] has sufficient size and alignment for `Self`, and
+///   contains valid, initialized values for all of its Rust fields.
+/// - Such an object can be borrowed as `&Self` while it is kept alive and
+///   [`MicroPython`] is shared-borrowed. Its contents must respect Rust's rules
+///   for shared references throughout that borrow.
+/// - [`Self::type_object`] always returns the same type object, which remains
+///   valid for the lifetime of the program.
+pub unsafe trait Class: Sized {
+    /// Returns the type object whose pointer identifies instances of `Self`.
+    fn type_object() -> &'static mp_obj_type_t;
 }
 
 pub trait RootProject: Sized {
@@ -176,13 +197,28 @@ impl<'gc> Restricted<'gc> {
         Obj { inner: self.inner }
     }
 
-    pub fn bind<'bound, T>(&'bound self, _mp: &'bound MicroPython) -> Bound<'bound, T> {
-        // need to downcast
-        todo!();
-        // Bound {
-        //     inner: tagging::ptr_value(self.inner).cast(),
-        //     _phantom: PhantomData,
-        // }
+    pub fn try_bind<'bound, T>(&'bound self, _mp: &'bound MicroPython) -> Option<Bound<'bound, T>>
+    where
+        T: Class,
+    {
+        let ptr = tagging::ptr_value(self.inner);
+        let base = ptr as *const mp_obj_base_t;
+        let type_match = unsafe { (*base).type_ == T::type_object() as *const _ };
+        if type_match {
+            Some(Bound {
+                inner: ptr.cast(),
+                _phantom: PhantomData,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn bind<'bound, T>(&'bound self, mp: &'bound MicroPython) -> Bound<'bound, T>
+    where
+        T: Class,
+    {
+        Self::try_bind(&self, mp).unwrap_or_else(|| panic!(""))
     }
 }
 
