@@ -37,6 +37,11 @@ pub struct Restricted<'gc> {
     _gc: &'gc mut Gc,
 }
 
+pub struct Rooted<'r, T> {
+    inner: mp_obj_t,
+    _phantom: PhantomData<(&'r Obj, *const T)>,
+}
+
 pub struct Bound<'o, T> {
     inner: mp_obj_t,
     _phantom: PhantomData<&'o T>,
@@ -105,6 +110,13 @@ impl Obj {
         }
     }
 
+    pub unsafe fn assume_rooted<T>(&self) -> Rooted<'_, T> {
+        Rooted {
+            inner: self.inner,
+            _phantom: PhantomData,
+        }
+    }
+
     pub unsafe fn assume_bound<'obj, 'py, 'bound, T>(
         &'obj self,
         _mp: &'py MicroPython,
@@ -165,6 +177,15 @@ impl<'gc> Restricted<'gc> {
         //     inner: self.inner,
         //     _phantom: PhantomData,
         // }
+    }
+}
+
+impl<'r, T> Rooted<'r, T> {
+    pub fn bind<'bound>(&'bound self, _mp: &'bound MicroPython) -> Bound<'bound, T> {
+        Bound {
+            inner: self.inner,
+            _phantom: PhantomData,
+        }
     }
 }
 
