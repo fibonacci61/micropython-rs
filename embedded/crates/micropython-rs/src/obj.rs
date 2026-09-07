@@ -4,7 +4,7 @@ use micropython_sys::{mp_int_t, mp_obj_t, mp_uint_t};
 
 use crate::{gc::Gc, qstr::Qstr, vm::MicroPython};
 
-mod ptr;
+mod direct_ptr;
 
 #[cfg_attr(micropython = "MICROPY_OBJ_REPR_A", path = "obj/repr_a.rs")]
 #[cfg_attr(micropython = "MICROPY_OBJ_REPR_B", path = "obj/repr_b.rs")]

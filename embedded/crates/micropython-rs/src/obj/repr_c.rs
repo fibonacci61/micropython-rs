@@ -40,5 +40,5 @@ pub fn is_ptr(o: mp_const_obj_t) -> bool {
     (o as mp_int_t & 3) == 0
 }
 
-pub use super::ptr::new_ptr;
-pub use super::ptr::ptr_value;
+pub use super::direct_ptr::new_ptr;
+pub use super::direct_ptr::ptr_value;
