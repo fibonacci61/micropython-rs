@@ -39,12 +39,13 @@ pub struct Restricted<'gc> {
 
 pub struct Rooted<'r, T> {
     inner: *const T,
-    _phantom: PhantomData<&'r Obj>,
+    _root: PhantomData<&'r Obj>,
 }
 
-pub struct Bound<'o, T> {
+pub struct Bound<'b, T> {
     inner: *const T,
-    _phantom: PhantomData<&'o T>,
+    _mp: &'b MicroPython,
+    _reference: PhantomData<&'b T>,
 }
 
 /// A Rust struct representing pointer objects of a particular MicroPython type.
@@ -140,13 +141,13 @@ impl Obj {
     pub unsafe fn assume_rooted<T>(&self) -> Rooted<'_, T> {
         Rooted {
             inner: tagging::ptr_value(self.inner).cast(),
-            _phantom: PhantomData,
+            _root: PhantomData,
         }
     }
 
     pub unsafe fn assume_bound<'obj, 'py, 'bound, T>(
         &'obj self,
-        _mp: &'py MicroPython,
+        mp: &'py MicroPython,
     ) -> Bound<'bound, T>
     where
         'obj: 'bound,
@@ -154,7 +155,8 @@ impl Obj {
     {
         Bound {
             inner: tagging::ptr_value(self.inner).cast(),
-            _phantom: PhantomData,
+            _mp: mp,
+            _reference: PhantomData,
         }
     }
 
@@ -197,7 +199,7 @@ impl<'gc> Restricted<'gc> {
         Obj { inner: self.inner }
     }
 
-    pub fn try_bind<'bound, T>(&'bound self, _mp: &'bound MicroPython) -> Option<Bound<'bound, T>>
+    pub fn try_bind<'bound, T>(&'bound self, mp: &'bound MicroPython) -> Option<Bound<'bound, T>>
     where
         T: Class,
     {
@@ -207,7 +209,8 @@ impl<'gc> Restricted<'gc> {
         if type_match {
             Some(Bound {
                 inner: ptr.cast(),
-                _phantom: PhantomData,
+                _mp: mp,
+                _reference: PhantomData,
             })
         } else {
             None
@@ -229,7 +232,7 @@ impl<'r, T> Rooted<'r, T> {
     ) -> Rooted<'r, U> {
         Rooted {
             inner: project(self.inner),
-            _phantom: PhantomData,
+            _root: PhantomData,
         }
     }
 
@@ -239,19 +242,20 @@ impl<'r, T> Rooted<'r, T> {
     {
         T::project(Rooted {
             inner: self.inner,
-            _phantom: PhantomData,
+            _root: PhantomData,
         })
     }
 
-    pub fn bind<'bound>(&'bound self, _mp: &'bound MicroPython) -> Bound<'bound, T> {
+    pub fn bind<'bound>(&'bound self, mp: &'bound MicroPython) -> Bound<'bound, T> {
         Bound {
             inner: self.inner,
-            _phantom: PhantomData,
+            _mp: mp,
+            _reference: PhantomData,
         }
     }
 }
 
-impl<'o, T> Deref for Bound<'o, T> {
+impl<'b, T> Deref for Bound<'b, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
