@@ -9,7 +9,7 @@ use core::{
 use micropython_sys::{gc_init, mp_deinit, mp_init};
 use thiserror::Error;
 
-use crate::shims;
+use crate::{gc::Gc, shims};
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -39,6 +39,7 @@ pub struct VmBuilder<'h> {
 struct VmInner<'h> {
     data: VmData<'h>,
     micropython: MicroPython,
+    gc: Gc,
 }
 
 pub struct Vm<'h> {
@@ -116,6 +117,7 @@ impl<'h> VmBuilder<'h> {
             micropython: MicroPython {
                 _not_send: PhantomData,
             },
+            gc: unsafe { Gc::new() },
         };
         vm_inner.init()?;
 
@@ -132,6 +134,15 @@ impl<'h> Vm<'h> {
 
     pub fn micropython(&mut self) -> &mut MicroPython {
         &mut self.inner.as_mut().unwrap().micropython
+    }
+
+    pub fn gc(&mut self) -> &mut Gc {
+        &mut self.inner.as_mut().unwrap().gc
+    }
+
+    pub fn tokens(&mut self) -> (&mut MicroPython, &mut Gc) {
+        let inner = self.inner.as_mut().unwrap();
+        (&mut inner.micropython, &mut inner.gc)
     }
 
     pub fn deinit(mut self) -> Deinitialized<'h> {

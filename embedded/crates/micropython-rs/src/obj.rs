@@ -2,7 +2,7 @@ use core::{ffi::c_void, marker::PhantomData, ops::Deref};
 
 use micropython_sys::{mp_int_t, mp_obj_t, mp_uint_t};
 
-use crate::{qstr::Qstr, vm::MicroPython};
+use crate::{gc::Gc, qstr::Qstr, vm::MicroPython};
 
 mod ptr;
 
@@ -32,9 +32,9 @@ unsafe impl<T: Send> Send for Immortal<T> {}
 unsafe impl<T: Sync> Sync for Immortal<T> {}
 
 /// Object that temporarily restricts use of MicroPython
-pub struct Restricted<'py> {
+pub struct Restricted<'gc> {
     inner: mp_obj_t,
-    _mp: &'py mut MicroPython,
+    _gc: &'gc mut Gc,
 }
 
 pub struct Bound<'o, T> {
@@ -149,19 +149,16 @@ impl<T: 'static> Immortal<T> {
     }
 }
 
-impl<'py> Restricted<'py> {
-    pub unsafe fn from_raw(o: mp_obj_t, _mp: &'py mut MicroPython) -> Self {
-        Self { inner: o, _mp }
+impl<'gc> Restricted<'gc> {
+    pub unsafe fn from_raw(o: mp_obj_t, _gc: &'gc mut Gc) -> Self {
+        Self { inner: o, _gc }
     }
 
     pub fn as_obj(self) -> Obj {
         Obj { inner: self.inner }
     }
 
-    pub fn bind<'bound, T>(&self) -> Bound<'bound, T>
-    where
-        'py: 'bound,
-    {
+    pub fn bind<'bound, T>(&'bound self, _mp: &'bound MicroPython) -> Bound<'bound, T> {
         // need to downcast
         todo!();
         // Bound {
