@@ -1,8 +1,8 @@
 use core::{ffi::c_void, marker::PhantomData, ops::Deref};
 
-use micropython_sys::{mp_int_t, mp_obj_base_t, mp_obj_t, mp_obj_type_t, mp_uint_t};
+use micropython_sys::{mp_int_t, mp_obj_base_t, mp_obj_t, mp_uint_t};
 
-use crate::{gc::Gc, qstr::Qstr, vm::MicroPython};
+use crate::{gc::Gc, qstr::Qstr, ty::Type, vm::MicroPython};
 
 mod direct_ptr;
 
@@ -66,7 +66,7 @@ pub struct Bound<'b, T> {
 ///   valid for the lifetime of the program.
 pub unsafe trait Class: Sized {
     /// Returns the type object whose pointer identifies instances of `Self`.
-    fn type_object() -> &'static mp_obj_type_t;
+    fn type_object() -> &'static Type;
 }
 
 pub trait RootProject: Sized {
@@ -209,7 +209,7 @@ impl<'gc> Restricted<'gc> {
 
         let ptr = tagging::ptr_value(self.inner);
         let base = ptr as *const mp_obj_base_t;
-        let type_match = unsafe { (*base).type_ == T::type_object() as *const _ };
+        let type_match = unsafe { (*base).type_ == T::type_object().as_raw() as *const _ };
         if type_match {
             Some(Bound {
                 inner: ptr.cast(),

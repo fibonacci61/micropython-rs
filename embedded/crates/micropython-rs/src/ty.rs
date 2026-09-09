@@ -8,7 +8,7 @@ use core::{
 
 use micropython_sys::{self as sys, mp_obj_type_t};
 
-use crate::qstr::Qstr;
+use crate::{obj::Class, qstr::Qstr};
 
 const MAX_SLOTS: usize = 12;
 const ITER_MASK: u16 = sys::MP_TYPE_FLAG_ITER_IS_STREAM as u16;
@@ -29,6 +29,12 @@ pub struct TypeStorage<const SLOTS: usize> {
 // pointees or invoking callbacks remains unsafe.
 unsafe impl Sync for Type {}
 unsafe impl<const SLOTS: usize> Sync for TypeStorage<SLOTS> {}
+
+unsafe impl Class for Type {
+    fn type_object() -> &'static Type {
+        unsafe { Type::from_raw(&raw const sys::mp_type_type) }
+    }
+}
 
 const _: () = {
     assert!(size_of::<Option<NonNull<c_void>>>() == size_of::<*const c_void>());
@@ -77,8 +83,8 @@ impl Type {
         unsafe { &*ty.cast() }
     }
 
-    pub const fn as_raw(&self) -> *const mp_obj_type_t {
-        ptr::from_ref(self).cast()
+    pub const fn as_raw(&self) -> &mp_obj_type_t {
+        &self.ty
     }
 
     pub const fn name(&self) -> Qstr {
@@ -197,8 +203,8 @@ impl<const SLOTS: usize> TypeStorage<SLOTS> {
         unsafe { &*ptr::from_ref(self).cast() }
     }
 
-    pub const fn as_raw(&self) -> *const mp_obj_type_t {
-        ptr::from_ref(self).cast()
+    pub const fn as_raw(&self) -> &mp_obj_type_t {
+        &self.ty
     }
 
     pub const fn capacity(&self) -> usize {
