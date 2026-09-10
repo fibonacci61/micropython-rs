@@ -1,6 +1,6 @@
-use core::{ffi::c_void, marker::PhantomData, ops::Deref};
+use core::{ffi::c_void, marker::PhantomData, ops::Deref, ptr::NonNull};
 
-use micropython_sys::{mp_int_t, mp_obj_base_t, mp_obj_t, mp_uint_t};
+use micropython_sys::{mp_int_t, mp_obj_base_t, mp_obj_get_type, mp_obj_t, mp_uint_t};
 
 use crate::{gc::Gc, qstr::Qstr, ty::Type, vm::MicroPython};
 
@@ -25,7 +25,7 @@ unsafe impl Sync for Obj {}
 #[repr(transparent)]
 pub struct Immortal<T: 'static> {
     inner: mp_obj_t,
-    _phantom: PhantomData<&'static T>,
+    phantom: PhantomData<&'static T>,
 }
 
 unsafe impl<T: Send> Send for Immortal<T> {}
@@ -38,14 +38,14 @@ pub struct Restricted<'gc> {
 }
 
 pub struct Rooted<'r, T> {
-    inner: *const T,
-    _root: PhantomData<&'r Obj>,
+    inner: NonNull<T>,
+    root: PhantomData<&'r Obj>,
 }
 
 pub struct Bound<'b, T> {
-    inner: *const T,
-    _mp: &'b MicroPython,
-    _reference: PhantomData<&'b T>,
+    inner: NonNull<T>,
+    mp: &'b MicroPython,
+    reference: PhantomData<&'b T>,
 }
 
 /// A Rust struct representing pointer objects of a particular MicroPython type.
@@ -140,8 +140,8 @@ impl Obj {
 
     pub unsafe fn assume_rooted<T>(&self) -> Rooted<'_, T> {
         Rooted {
-            inner: tagging::ptr_value(self.inner).cast(),
-            _root: PhantomData,
+            inner: unsafe { NonNull::new_unchecked(tagging::ptr_value(self.inner) as *mut _) },
+            root: PhantomData,
         }
     }
 
@@ -154,9 +154,9 @@ impl Obj {
         'py: 'bound,
     {
         Bound {
-            inner: tagging::ptr_value(self.inner).cast(),
-            _mp: mp,
-            _reference: PhantomData,
+            inner: unsafe { NonNull::new_unchecked(tagging::ptr_value(self.inner) as *mut _) },
+            mp,
+            reference: PhantomData,
         }
     }
 
@@ -180,7 +180,7 @@ impl<T: 'static> Immortal<T> {
     pub const fn new(inner: &'static T) -> Self {
         Self {
             inner: tagging::new_ptr(inner as *const T as *mut c_void),
-            _phantom: PhantomData,
+            phantom: PhantomData,
         }
     }
 
@@ -191,8 +191,8 @@ impl<T: 'static> Immortal<T> {
 }
 
 impl<'gc> Restricted<'gc> {
-    pub unsafe fn from_raw(o: mp_obj_t, _gc: &'gc mut Gc) -> Self {
-        Self { inner: o, _gc }
+    pub unsafe fn from_raw(o: mp_obj_t, gc: &'gc mut Gc) -> Self {
+        Self { inner: o, _gc: gc }
     }
 
     pub fn as_obj(self) -> Obj {
@@ -212,9 +212,9 @@ impl<'gc> Restricted<'gc> {
         let type_match = unsafe { (*base).type_ == T::type_object().as_raw() as *const _ };
         if type_match {
             Some(Bound {
-                inner: ptr.cast(),
-                _mp: mp,
-                _reference: PhantomData,
+                inner: NonNull::new(ptr)?.cast(),
+                mp,
+                reference: PhantomData,
             })
         } else {
             None
@@ -232,11 +232,11 @@ impl<'gc> Restricted<'gc> {
 impl<'r, T> Rooted<'r, T> {
     pub unsafe fn project_unchecked<U>(
         &self,
-        project: impl FnOnce(*const T) -> *const U,
+        project: impl FnOnce(NonNull<T>) -> NonNull<U>,
     ) -> Rooted<'r, U> {
         Rooted {
             inner: project(self.inner),
-            _root: PhantomData,
+            root: PhantomData,
         }
     }
 
@@ -246,16 +246,22 @@ impl<'r, T> Rooted<'r, T> {
     {
         T::project(Rooted {
             inner: self.inner,
-            _root: PhantomData,
+            root: PhantomData,
         })
     }
 
     pub fn bind<'bound>(&'bound self, mp: &'bound MicroPython) -> Bound<'bound, T> {
         Bound {
             inner: self.inner,
-            _mp: mp,
-            _reference: PhantomData,
+            mp,
+            reference: PhantomData,
         }
+    }
+}
+
+impl<'b, T> Bound<'b, T> {
+    pub const fn mp(&self) -> &'b MicroPython {
+        self.mp
     }
 }
 
@@ -263,6 +269,41 @@ impl<'b, T> Deref for Bound<'b, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.inner }
+        unsafe { self.inner.as_ref() }
+    }
+}
+
+impl<'b> Bound<'b, Obj> {
+    pub fn ty(&self) -> &Type {
+        unsafe { Type::from_raw(mp_obj_get_type(self.deref().inner)) }
+    }
+
+    pub fn try_downcast<T>(&self) -> Option<Bound<'b, T>>
+    where
+        T: Class,
+    {
+        let obj = self.deref().inner;
+        if !tagging::is_ptr(obj) {
+            return None;
+        }
+
+        let base = obj as *const mp_obj_base_t;
+        let type_match = unsafe { (*base).type_ == T::type_object().as_raw() as *const _ };
+        if type_match {
+            Some(Bound {
+                inner: NonNull::new(obj)?.cast(),
+                mp: self.mp,
+                reference: PhantomData,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn downcast<T>(&self) -> Bound<'b, T>
+    where
+        T: Class,
+    {
+        self.try_downcast().unwrap_or_else(|| panic!(""))
     }
 }

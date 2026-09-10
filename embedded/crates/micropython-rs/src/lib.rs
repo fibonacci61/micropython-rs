@@ -6,6 +6,7 @@ pub mod gc;
 pub mod obj;
 pub mod qstr;
 pub mod shims;
+pub mod str;
 pub mod ty;
 pub mod vm;
 
