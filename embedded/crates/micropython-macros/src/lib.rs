@@ -4,6 +4,7 @@ use quote::quote;
 use syn::Ident;
 
 mod root_project;
+mod sig;
 
 #[proc_macro_derive(RootProject, attributes(root_project))]
 pub fn derive_root_project(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
