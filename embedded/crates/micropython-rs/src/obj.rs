@@ -37,16 +37,28 @@ pub struct Restricted<'gc> {
     _gc: &'gc mut Gc,
 }
 
-pub struct Rooted<'r, T> {
+pub struct Rooted<'r, T: ?Sized> {
     inner: NonNull<T>,
     root: PhantomData<&'r Obj>,
 }
 
-pub struct Bound<'b, T> {
+pub struct Bound<'b, T: ?Sized> {
     inner: NonNull<T>,
     mp: &'b MicroPython,
     reference: PhantomData<&'b T>,
 }
+
+impl<T: ?Sized> Clone for Bound<'_, T> {
+    fn clone(&self) -> Self {
+        Bound {
+            inner: self.inner,
+            mp: self.mp,
+            reference: self.reference,
+        }
+    }
+}
+
+impl<T: ?Sized> Copy for Bound<'_, T> {}
 
 /// A Rust struct representing pointer objects of a particular MicroPython type.
 ///
@@ -265,7 +277,7 @@ impl<'b, T> Bound<'b, T> {
     }
 }
 
-impl<'b, T> Deref for Bound<'b, T> {
+impl<'b, T: ?Sized> Deref for Bound<'b, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -274,11 +286,11 @@ impl<'b, T> Deref for Bound<'b, T> {
 }
 
 impl<'b> Bound<'b, Obj> {
-    pub fn ty(&self) -> &Type {
+    pub fn ty(self) -> &'b Type {
         unsafe { Type::from_raw(mp_obj_get_type(self.deref().inner)) }
     }
 
-    pub fn try_downcast<T>(&self) -> Option<Bound<'b, T>>
+    pub fn try_downcast<T>(self) -> Option<Bound<'b, T>>
     where
         T: Class,
     {
@@ -300,10 +312,37 @@ impl<'b> Bound<'b, Obj> {
         }
     }
 
-    pub fn downcast<T>(&self) -> Bound<'b, T>
+    pub fn downcast<T>(self) -> Bound<'b, T>
     where
         T: Class,
     {
         self.try_downcast().unwrap_or_else(|| panic!(""))
+    }
+}
+
+impl<'b, T> Bound<'b, [T]> {
+    pub fn get(self, index: usize) -> Option<Bound<'b, T>> {
+        let slice = self.deref();
+        slice.get(index).map(|elem| Bound {
+            inner: NonNull::from_ref(elem),
+            mp: self.mp,
+            reference: PhantomData,
+        })
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Bound<'b, T>> {
+        self.deref().iter().map(|elem| Bound {
+            inner: NonNull::from_ref(elem),
+            mp: self.mp,
+            reference: PhantomData,
+        })
+    }
+
+    pub fn chunks_exact(&self, chunk_size: usize) -> impl Iterator<Item = Bound<'b, [T]>> {
+        self.deref().chunks_exact(chunk_size).map(|elem| Bound {
+            inner: NonNull::from_ref(elem),
+            mp: self.mp,
+            reference: PhantomData,
+        })
     }
 }
