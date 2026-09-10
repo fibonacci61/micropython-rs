@@ -4,7 +4,7 @@ use micropython_sys::{qstr, qstr_data};
 
 use crate::vm::MicroPython;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Qstr {
     inner: qstr,
 }
