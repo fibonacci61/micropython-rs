@@ -4,6 +4,7 @@ pub mod alloc;
 pub mod except;
 pub mod function;
 pub mod gc;
+pub mod map;
 pub mod obj;
 pub mod qstr;
 pub mod shims;
