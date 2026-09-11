@@ -69,6 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .wrap_unsafe_ops(true)
         .allowlist_type("mprs_.*")
         .allowlist_function("mprs_.*")
+        .allowlist_var("mprs_.*")
         .clang_arg("-I")
         .clang_arg(mp_dir.into_string().unwrap())
         .clang_arg("-I")
