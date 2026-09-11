@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod alloc;
+pub mod dict;
 pub mod except;
 pub mod function;
 pub mod gc;

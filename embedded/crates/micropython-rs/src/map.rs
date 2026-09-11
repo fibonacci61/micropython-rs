@@ -37,4 +37,8 @@ impl Map {
             },
         }
     }
+
+    pub const fn into_raw(self) -> mp_map_t {
+        self.map
+    }
 }
