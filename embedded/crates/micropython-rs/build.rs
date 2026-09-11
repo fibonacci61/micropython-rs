@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let nlrshims_c_path = src_dir.join("nlrshims.c");
     let nlrshims_h_path = src_dir.join("nlrshims.h");
     let staticshims_h_path = src_dir.join("staticshims.h");
-    let staticshims_c_path = src_dir.join("staticshims.h");
+    let staticshims_c_path = src_dir.join("staticshims.c");
 
     let ManifestPaths {
         path: manifest_path,
