@@ -1,17 +1,40 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use micropython_build::config::process_mp_config;
 use micropython_manifest::{ManifestPaths, find_manifest_from, parse_manifest};
+
+fn native_sources(src_dir: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>), std::io::Error> {
+    let mut sources = Vec::new();
+    let mut inputs = Vec::new();
+
+    for entry in src_dir.read_dir()? {
+        let path = entry?.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        match path.extension().and_then(|extension| extension.to_str()) {
+            Some("c") => {
+                sources.push(path.clone());
+                inputs.push(path);
+            }
+            Some("h") => inputs.push(path),
+            _ => {}
+        }
+    }
+
+    // deterministic
+    sources.sort();
+    inputs.sort();
+    Ok((sources, inputs))
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cargo_manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let src_dir = cargo_manifest_dir.join("src");
 
     let wrapper_path = src_dir.join("wrapper.h");
-    let nlrshims_c_path = src_dir.join("nlrshims.c");
-    let nlrshims_h_path = src_dir.join("nlrshims.h");
-    let staticshims_h_path = src_dir.join("staticshims.h");
-    let staticshims_c_path = src_dir.join("staticshims.c");
+    let (c_sources, native_inputs) = native_sources(&src_dir)?;
 
     let ManifestPaths {
         path: manifest_path,
@@ -29,18 +52,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: process depfile
     cc::Build::new()
         .includes([&port_dir, &mp_dir, &header_dir, &src_dir])
-        .files([&nlrshims_c_path, &staticshims_c_path])
+        .files(&c_sources)
         .warnings(true)
         .compile("mprsshims");
 
     println!("cargo::rerun-if-changed={}", port_dir.display());
     println!("cargo::rerun-if-changed={}", mp_dir.display());
     println!("cargo::rerun-if-changed={}", header_dir.display());
-    println!("cargo::rerun-if-changed={}", wrapper_path.display());
-    println!("cargo::rerun-if-changed={}", nlrshims_h_path.display());
-    println!("cargo::rerun-if-changed={}", nlrshims_c_path.display());
-    println!("cargo::rerun-if-changed={}", staticshims_h_path.display());
-    println!("cargo::rerun-if-changed={}", staticshims_c_path.display());
+    for path in native_inputs {
+        println!("cargo::rerun-if-changed={}", path.display());
+    }
 
     let bindings = bindgen::builder()
         .header(wrapper_path.into_string().unwrap())
