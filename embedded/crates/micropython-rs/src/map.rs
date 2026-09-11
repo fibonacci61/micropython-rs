@@ -6,7 +6,7 @@ pub struct Map {
 }
 
 impl Map {
-    pub const unsafe fn from_raw(
+    pub const unsafe fn from_raw_parts(
         all_keys_are_qstrs: bool,
         is_fixed: bool,
         is_ordered: bool,
