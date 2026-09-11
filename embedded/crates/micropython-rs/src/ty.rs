@@ -31,9 +31,7 @@ unsafe impl Sync for Type {}
 unsafe impl<const SLOTS: usize> Sync for TypeStorage<SLOTS> {}
 
 unsafe impl Class for Type {
-    fn type_object() -> &'static Type {
-        unsafe { Type::from_raw(&raw const sys::mp_type_type) }
-    }
+    const TYPE_OBJECT: &'static Type = unsafe { Type::from_raw(&raw const sys::mp_type_type) };
 }
 
 const _: () = {

@@ -68,17 +68,15 @@ impl<T: ?Sized> Copy for Bound<'_, T> {}
 ///
 /// - `Self` has a stable, C-compatible layout with an
 ///   [`mp_obj_base_t`](micropython_sys::mp_obj_base_t) at offset zero.
-/// - Every valid pointer object with the exact type pointer returned by
-///   [`Self::type_object`] has sufficient size and alignment for `Self`, and
+/// - Every valid pointer object with the exact type pointer
+///   [`Self::TYPE_OBJECT`] has sufficient size and alignment for `Self`, and
 ///   contains valid, initialized values for all of its Rust fields.
 /// - Such an object can be borrowed as `&Self` while it is kept alive and
 ///   [`MicroPython`] is shared-borrowed. Its contents must respect Rust's rules
 ///   for shared references throughout that borrow.
-/// - [`Self::type_object`] always returns the same type object, which remains
-///   valid for the lifetime of the program.
 pub unsafe trait Class: Sized {
-    /// Returns the type object whose pointer identifies instances of `Self`.
-    fn type_object() -> &'static Type;
+    /// The type object whose pointer identifies instances of `Self`.
+    const TYPE_OBJECT: &'static Type;
 }
 
 pub trait RootProject: Sized {
@@ -221,7 +219,7 @@ impl<'gc> Restricted<'gc> {
 
         let ptr = tagging::ptr_value(self.inner);
         let base = ptr as *const mp_obj_base_t;
-        let type_match = unsafe { (*base).type_ == T::type_object().as_raw() as *const _ };
+        let type_match = unsafe { (*base).type_ == T::TYPE_OBJECT.as_raw() as *const _ };
         if type_match {
             Some(Bound {
                 inner: NonNull::new(ptr)?.cast(),
@@ -300,7 +298,7 @@ impl<'b> Bound<'b, Obj> {
         }
 
         let base = obj as *const mp_obj_base_t;
-        let type_match = unsafe { (*base).type_ == T::type_object().as_raw() as *const _ };
+        let type_match = unsafe { (*base).type_ == T::TYPE_OBJECT.as_raw() as *const _ };
         if type_match {
             Some(Bound {
                 inner: NonNull::new(obj)?.cast(),

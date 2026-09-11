@@ -8,9 +8,7 @@ pub struct Dict {
 }
 
 unsafe impl Class for Dict {
-    fn type_object() -> &'static crate::ty::Type {
-        unsafe { Type::from_raw(&raw const mp_type_dict) }
-    }
+    const TYPE_OBJECT: &'static Type = unsafe { Type::from_raw(&raw const mp_type_dict) };
 }
 
 impl Dict {
@@ -18,7 +16,7 @@ impl Dict {
         Self {
             dict: mp_obj_dict_t {
                 base: mp_obj_base_t {
-                    type_: &raw const mp_type_dict,
+                    type_: Self::TYPE_OBJECT.as_raw() as *const _,
                 },
                 map: map.into_raw(),
             },

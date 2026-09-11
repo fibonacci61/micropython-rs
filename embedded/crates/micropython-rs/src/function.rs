@@ -12,9 +12,8 @@ pub struct Function {
 }
 
 unsafe impl Class for Function {
-    fn type_object() -> &'static Type {
-        unsafe { Type::from_raw((&raw const mprs_type_function).cast()) }
-    }
+    const TYPE_OBJECT: &'static Type =
+        unsafe { Type::from_raw((&raw const mprs_type_function).cast()) };
 }
 
 impl Function {
