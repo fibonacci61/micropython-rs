@@ -3,6 +3,7 @@ use core::ffi::c_void;
 use crate::{except::RstResult, gc::Gc, obj::Restricted, shims, vm::MicroPython};
 
 pub fn m_malloc<'gc>(
+    // needed because finalisers may be triggered by the allocation call
     _mp: &mut MicroPython,
     gc: &'gc mut Gc,
     size: usize,
