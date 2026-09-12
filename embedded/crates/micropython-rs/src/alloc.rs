@@ -1,11 +1,11 @@
 use core::ffi::c_void;
 
-use crate::{except::RstResult, gc::Gc, obj::Restricted, shims, vm::MicroPython};
+use crate::{except::RstResult, obj::Restricted, shims, vm::Gc, vm::MicroPythonMut};
 
 pub fn m_malloc<'gc>(
     // needed because finalisers may be triggered by the allocation call
-    _mp: &mut MicroPython,
-    gc: &'gc mut Gc,
+    _mp: MicroPythonMut<'_>,
+    gc: Gc<'gc>,
     size: usize,
 ) -> RstResult<'gc, *mut c_void> {
     let result = unsafe { shims::mprs_nlrshim_m_malloc(size) };

@@ -9,7 +9,7 @@ use core::{
 use micropython_sys::{gc_init, mp_deinit, mp_init};
 use thiserror::Error;
 
-use crate::{gc::Gc, shims};
+use crate::shims;
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -38,8 +38,6 @@ pub struct VmBuilder<'h> {
 
 struct VmInner<'h> {
     data: VmData<'h>,
-    micropython: MicroPython,
-    gc: Gc,
 }
 
 pub struct Vm<'h> {
@@ -50,8 +48,45 @@ pub struct Deinitialized<'h> {
     inner: VmInner<'h>,
 }
 
-pub struct MicroPython {
-    _not_send: PhantomData<*mut ()>,
+#[derive(Clone, Copy)]
+pub struct MicroPython<'vm> {
+    vm: PhantomData<&'vm Vm<'vm>>,
+    not_send: PhantomData<*mut ()>,
+}
+
+pub struct MicroPythonMut<'vm> {
+    vm: PhantomData<&'vm mut Vm<'vm>>,
+    not_send: PhantomData<*mut ()>,
+}
+
+impl<'vm> MicroPythonMut<'vm> {
+    pub fn reborrow(&mut self) -> MicroPythonMut<'_> {
+        MicroPythonMut {
+            vm: PhantomData,
+            not_send: PhantomData,
+        }
+    }
+
+    pub fn borrow(&self) -> MicroPython<'_> {
+        MicroPython {
+            vm: PhantomData,
+            not_send: PhantomData,
+        }
+    }
+}
+
+pub struct Gc<'vm> {
+    vm: PhantomData<&'vm mut Vm<'vm>>,
+    not_send: PhantomData<*mut ()>,
+}
+
+impl<'vm> Gc<'vm> {
+    pub fn reborrow(&mut self) -> Gc<'_> {
+        Gc {
+            vm: PhantomData,
+            not_send: PhantomData,
+        }
+    }
 }
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
@@ -112,13 +147,7 @@ impl<'h> VmBuilder<'h> {
     }
 
     pub fn build(self) -> Result<Vm<'h>, InitError> {
-        let mut vm_inner = VmInner {
-            data: self.data,
-            micropython: MicroPython {
-                _not_send: PhantomData,
-            },
-            gc: unsafe { Gc::new() },
-        };
+        let mut vm_inner = VmInner { data: self.data };
         vm_inner.init()?;
 
         Ok(Vm {
@@ -132,18 +161,44 @@ impl<'h> Vm<'h> {
         VmBuilder::new()
     }
 
-    pub fn micropython(&mut self) -> &mut MicroPython {
-        &mut self.inner.as_mut().unwrap().micropython
+    pub fn micropython(&self) -> MicroPython<'_> {
+        MicroPython {
+            vm: PhantomData,
+            not_send: PhantomData,
+        }
     }
 
-    pub fn gc(&mut self) -> &mut Gc {
-        &mut self.inner.as_mut().unwrap().gc
+    pub fn micropython_mut(&mut self) -> MicroPythonMut<'_> {
+        MicroPythonMut {
+            vm: PhantomData,
+            not_send: PhantomData,
+        }
     }
 
-    pub fn tokens(&mut self) -> (&mut MicroPython, &mut Gc) {
-        let inner = self.inner.as_mut().unwrap();
-        (&mut inner.micropython, &mut inner.gc)
+    pub fn gc(&mut self) -> Gc<'_> {
+        Gc {
+            vm: PhantomData,
+            not_send: PhantomData,
+        }
     }
+
+    pub fn tokens(&mut self) -> (MicroPythonMut<'_>, Gc<'_>) {
+        (
+            MicroPythonMut {
+                vm: PhantomData,
+                not_send: PhantomData,
+            },
+            Gc {
+                vm: PhantomData,
+                not_send: PhantomData,
+            },
+        )
+    }
+
+    // pub fn tokens(&mut self) -> (&mut MicroPython, &mut Gc) {
+    //     let inner = self.inner.as_mut().unwrap();
+    //     (&mut inner.micropython, &mut inner.gc)
+    // }
 
     pub fn deinit(mut self) -> Deinitialized<'h> {
         let mut inner = self.inner.take().unwrap();
@@ -169,14 +224,6 @@ impl Drop for Vm<'_> {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_mut() {
             inner.deinit();
-        }
-    }
-}
-
-impl MicroPython {
-    pub unsafe fn new() -> Self {
-        Self {
-            _not_send: PhantomData,
         }
     }
 }

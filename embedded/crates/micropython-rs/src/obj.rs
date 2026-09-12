@@ -2,7 +2,7 @@ use core::{ffi::c_void, marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use micropython_sys::{mp_int_t, mp_obj_base_t, mp_obj_get_type, mp_obj_t, mp_uint_t};
 
-use crate::{gc::Gc, qstr::Qstr, ty::Type, vm::MicroPython};
+use crate::{qstr::Qstr, ty::Type, vm::Gc, vm::MicroPython};
 
 mod direct_ptr;
 
@@ -34,7 +34,7 @@ unsafe impl<T: Sync> Sync for Immortal<T> {}
 /// Object that temporarily restricts use of MicroPython
 pub struct Restricted<'gc> {
     inner: mp_obj_t,
-    _gc: &'gc mut Gc,
+    _gc: Gc<'gc>,
 }
 
 pub struct Rooted<'r, T: ?Sized> {
@@ -44,7 +44,7 @@ pub struct Rooted<'r, T: ?Sized> {
 
 pub struct Bound<'b, T: ?Sized> {
     inner: NonNull<T>,
-    mp: &'b MicroPython,
+    mp: MicroPython<'b>,
     reference: PhantomData<&'b T>,
 }
 
@@ -155,13 +155,13 @@ impl Obj {
         }
     }
 
-    pub unsafe fn assume_bound<'obj, 'py, 'bound, T>(
+    pub unsafe fn assume_bound<'obj, 'mp, 'bound, T>(
         &'obj self,
-        mp: &'py MicroPython,
+        mp: MicroPython<'mp>,
     ) -> Bound<'bound, T>
     where
         'obj: 'bound,
-        'py: 'bound,
+        'mp: 'bound,
     {
         Bound {
             inner: unsafe { NonNull::new_unchecked(tagging::ptr_value(self.inner) as *mut _) },
@@ -201,7 +201,7 @@ impl<T: 'static> Immortal<T> {
 }
 
 impl<'gc> Restricted<'gc> {
-    pub unsafe fn from_raw(o: mp_obj_t, gc: &'gc mut Gc) -> Self {
+    pub unsafe fn from_raw(o: mp_obj_t, gc: Gc<'gc>) -> Self {
         Self { inner: o, _gc: gc }
     }
 
@@ -209,7 +209,7 @@ impl<'gc> Restricted<'gc> {
         Obj { inner: self.inner }
     }
 
-    pub fn try_bind<'bound, T>(&'bound self, mp: &'bound MicroPython) -> Option<Bound<'bound, T>>
+    pub fn try_bind<'bound, T>(&'bound self, mp: MicroPython<'bound>) -> Option<Bound<'bound, T>>
     where
         T: Class,
     {
@@ -231,7 +231,7 @@ impl<'gc> Restricted<'gc> {
         }
     }
 
-    pub fn bind<'bound, T>(&'bound self, mp: &'bound MicroPython) -> Bound<'bound, T>
+    pub fn bind<'bound, T>(&'bound self, mp: MicroPython<'bound>) -> Bound<'bound, T>
     where
         T: Class,
     {
@@ -260,7 +260,7 @@ impl<'r, T> Rooted<'r, T> {
         })
     }
 
-    pub fn bind<'bound>(&'bound self, mp: &'bound MicroPython) -> Bound<'bound, T> {
+    pub fn bind<'bound>(&'bound self, mp: MicroPython<'bound>) -> Bound<'bound, T> {
         Bound {
             inner: self.inner,
             mp,
@@ -270,7 +270,7 @@ impl<'r, T> Rooted<'r, T> {
 }
 
 impl<'b, T> Bound<'b, T> {
-    pub const fn mp(&self) -> &'b MicroPython {
+    pub const fn mp(self) -> MicroPython<'b> {
         self.mp
     }
 }
