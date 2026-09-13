@@ -438,7 +438,6 @@ dependencies = [
  "bindgen",
  "micropython-depfile",
  "micropython-manifest",
- "micropython-scan-cfg-propogation-test",
  "regex",
  "tempfile",
 ]
@@ -458,10 +457,6 @@ dependencies = [
  "serde",
  "toml",
 ]
-
-[[package]]
-name = "micropython-scan-cfg-propogation-test"
-version = "0.1.0"
 
 [[package]]
 name = "minimal-lexical"

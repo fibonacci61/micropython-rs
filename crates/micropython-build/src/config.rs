@@ -137,7 +137,5 @@ pub fn process_mp_config(mp_dir: &Path, port_dir: &Path) -> anyhow::Result<Confi
             .unwrap(),
     );
 
-    micropython_scan_cfg_propogation_test::qstr!("omg");
-
     Ok(Config { definitions, deps })
 }
