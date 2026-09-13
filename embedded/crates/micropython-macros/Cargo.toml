@@ -7,7 +7,7 @@ edition = "2024"
 proc-macro-crate = "3.5.0"
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-syn = { version = "3.0.4", features = ["visit-mut"] }
+syn = { version = "3.0.4", features = ["full", "visit-mut"] }
 
 [lib]
 proc-macro = true

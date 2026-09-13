@@ -3,6 +3,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::Ident;
 
+mod pyfunction;
 mod root_project;
 mod sig;
 
@@ -36,4 +37,12 @@ pub fn qstr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         unsafe { #mprs::qstr::Qstr::from_raw(#mprs::sys::#ident as #mprs::sys::qstr) }
     }
     .into()
+}
+
+#[proc_macro_attribute]
+pub fn pyfunction(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    item
 }
