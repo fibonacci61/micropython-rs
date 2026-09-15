@@ -177,6 +177,8 @@ pub fn gen_qstrdefs(
         bail!("`{}` failed [{status}]", pp_context.program().display());
     }
 
+    writer.flush()?;
+
     let qstrdefs_generated_h_path = genhdr_dir.join("qstrdefs.generated.h");
     let qstrdefs_generated_h = File::create(&qstrdefs_generated_h_path)
         .with_context(|| format!("couldn't open `{}`", qstrdefs_generated_h_path.display()))?;
