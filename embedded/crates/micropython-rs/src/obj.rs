@@ -2,7 +2,12 @@ use core::{ffi::c_void, marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use micropython_sys::{mp_int_t, mp_obj_base_t, mp_obj_get_type, mp_obj_t, mp_uint_t};
 
-use crate::{qstr::Qstr, ty::Type, vm::Gc, vm::MicroPython};
+use crate::{
+    qstr::Qstr,
+    shims::mprs_function_ret_t,
+    ty::Type,
+    vm::{Gc, MicroPython, MicroPythonMut},
+};
 
 mod direct_ptr;
 
@@ -342,5 +347,83 @@ impl<'b, T> Bound<'b, [T]> {
             mp: self.mp,
             reference: PhantomData,
         })
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PyResult {
+    inner: mprs_function_ret_t,
+}
+
+impl PyResult {
+    pub const unsafe fn new(ok: bool, value: mp_obj_t) -> Self {
+        Self {
+            inner: mprs_function_ret_t { ok, value },
+        }
+    }
+
+    pub const fn inner(&self) -> mprs_function_ret_t {
+        self.inner
+    }
+}
+
+pub unsafe trait IntoRawObj {
+    fn into_raw_obj(self, mp: MicroPythonMut, gc: Gc) -> mp_obj_t;
+}
+
+pub trait IntoPyResult {
+    fn into_py_result(self, mp: MicroPythonMut, gc: Gc) -> PyResult;
+}
+
+unsafe impl IntoRawObj for mp_int_t {
+    fn into_raw_obj(self, _mp: MicroPythonMut, _gc: Gc) -> mp_obj_t {
+        Obj::from_small_int(self).inner
+    }
+}
+
+unsafe impl IntoRawObj for Qstr {
+    fn into_raw_obj(self, _mp: MicroPythonMut, _gc: Gc) -> mp_obj_t {
+        Obj::from_qstr(self).inner
+    }
+}
+
+unsafe impl IntoRawObj for () {
+    fn into_raw_obj(self, _mp: MicroPythonMut, _gc: Gc) -> mp_obj_t {
+        Obj::NONE.inner
+    }
+}
+
+unsafe impl IntoRawObj for bool {
+    fn into_raw_obj(self, _mp: MicroPythonMut, _gc: Gc) -> mp_obj_t {
+        match self {
+            true => Obj::TRUE.inner,
+            false => Obj::FALSE.inner,
+        }
+    }
+}
+
+unsafe impl<T: IntoRawObj> IntoRawObj for Option<T> {
+    fn into_raw_obj(self, mp: MicroPythonMut, gc: Gc) -> mp_obj_t {
+        match self {
+            Some(v) => v.into_raw_obj(mp, gc),
+            None => Obj::NONE.inner,
+        }
+    }
+}
+
+impl<T: IntoRawObj> IntoPyResult for T {
+    fn into_py_result(self, mp: MicroPythonMut, gc: Gc) -> PyResult {
+        unsafe { PyResult::new(true, self.into_raw_obj(mp, gc)) }
+    }
+}
+
+impl<T: IntoRawObj, E: IntoRawObj> IntoPyResult for Result<T, E> {
+    fn into_py_result(self, mp: MicroPythonMut, gc: Gc) -> PyResult {
+        unsafe {
+            match self {
+                Ok(v) => PyResult::new(true, v.into_raw_obj(mp, gc)),
+                Err(e) => PyResult::new(false, e.into_raw_obj(mp, gc)),
+            }
+        }
     }
 }
