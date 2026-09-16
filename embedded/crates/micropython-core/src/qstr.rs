@@ -24,11 +24,3 @@ impl Qstr {
         unsafe { str::from_utf8_unchecked(core::slice::from_raw_parts(bytes, len)) }
     }
 }
-
-#[macro_export]
-#[cfg(micropython_rs_qstr_scan)]
-macro_rules! qstr {
-    ($q:literal) => {
-        ("__MICROPYTHON_RS_QSTR_VALUE__", $q)
-    };
-}

@@ -90,7 +90,9 @@ pub fn derive(input: DeriveInput) -> syn::Result<TokenStream> {
             #field_vis fn #field_name(&self) -> #mprs::obj::Rooted<#lifetime, #field_ty> {
                 unsafe {
                     self.__root.project_unchecked(|parent| {
-                        ::core::ptr::addr_of!((*parent).#field_name)
+                        ::core::ptr::NonNull::new_unchecked(
+                            ::core::ptr::addr_of_mut!((*parent.as_ptr()).#field_name)
+                        )
                     })
                 }
             }

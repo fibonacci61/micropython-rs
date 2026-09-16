@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use micropython_rs::{
+use micropython_core::{
     obj::{Bound, Class, Obj, Rooted},
     qstr::Qstr,
     vm::MicroPython,

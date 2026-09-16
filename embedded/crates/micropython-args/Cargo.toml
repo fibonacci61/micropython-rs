@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-micropython-rs = { path = "../micropython-rs" }
+micropython-core = { path = "../micropython-core" }
