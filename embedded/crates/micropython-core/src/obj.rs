@@ -17,6 +17,7 @@ mod direct_ptr;
 #[cfg_attr(micropython = "MICROPY_OBJ_REPR_D", path = "obj/repr_d.rs")]
 mod tagging;
 
+#[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct Obj {
     inner: mp_obj_t,
@@ -336,6 +337,20 @@ impl<'r, 'mp> Bound<'r, 'mp, Obj> {
 }
 
 impl<'r, 'mp, T> Bound<'r, 'mp, [T]> {
+    /// Bind a rooted slice supplied by the VM.
+    ///
+    /// # Safety
+    /// The slice must remain live and rooted for `'r`. Its contents must be
+    /// valid `T` values, and shared access must be permitted while `mp` is live.
+    #[doc(hidden)]
+    pub unsafe fn from_rooted_slice(slice: &'r [T], mp: MicroPython<'mp>) -> Self {
+        Self {
+            inner: NonNull::from_ref(slice),
+            root: PhantomData,
+            mp,
+        }
+    }
+
     pub fn get(self, index: usize) -> Option<Bound<'r, 'mp, T>> {
         let slice = self.deref();
         slice.get(index).map(|elem| Bound {

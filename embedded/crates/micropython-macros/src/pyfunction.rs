@@ -1,10 +1,34 @@
 use proc_macro2::TokenStream;
+use quote::{format_ident, quote};
+use syn::parse::{Parse, ParseStream};
+use syn::visit_mut::VisitMut;
 use syn::{Expr, FnArg, Ident, ItemFn, Pat, Safety, Type, ext::IdentExt, spanned::Spanned};
 
 use crate::sig::{Elem, Signature};
 
 pub struct PyfunctionArgs {
     pub signature: Option<Signature>,
+}
+
+impl Parse for PyfunctionArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut signature = None;
+        while !input.is_empty() {
+            let key: Ident = input.parse()?;
+            if key != "signature" {
+                return Err(syn::Error::new(key.span(), "expected `signature = (...)`"));
+            }
+            if signature.is_some() {
+                return Err(syn::Error::new(key.span(), "duplicate signature option"));
+            }
+            input.parse::<syn::Token![=]>()?;
+            signature = Some(input.parse()?);
+            if !input.is_empty() {
+                input.parse::<syn::Token![,]>()?;
+            }
+        }
+        Ok(Self { signature })
+    }
 }
 
 enum ArgKind {
@@ -232,15 +256,199 @@ fn parameter_name(pat: &Pat) -> syn::Result<&Ident> {
     }
 }
 
-pub fn generate(args: PyfunctionArgs, f: ItemFn) -> syn::Result<TokenStream> {
+pub fn generate(args: PyfunctionArgs, f: ItemFn, mprs: TokenStream) -> syn::Result<TokenStream> {
     if let Safety::Unsafe(unsafe_token) = f.sig.safety {
         return Err(syn::Error::new(
             unsafe_token.span,
             "function cannot be unsafe",
         ));
     }
+    if f.sig.asyncness.is_some() || f.sig.variadic.is_some() || f.sig.abi.is_some() {
+        return Err(syn::Error::new(
+            f.sig.span(),
+            "pyfunction requires a synchronous, non-variadic Rust function",
+        ));
+    }
+    if f.sig
+        .generics
+        .params
+        .iter()
+        .any(|p| !matches!(p, syn::GenericParam::Lifetime(_)))
+    {
+        return Err(syn::Error::new(
+            f.sig.generics.span(),
+            "pyfunction does not support type or const generics",
+        ));
+    }
+    let validated = validate_signature(f.sig.clone(), args.signature)?;
+    let mutable_count = validated
+        .args
+        .iter()
+        .filter(|a| matches!(a, ValidatedArg::Token(TokenType::MicroPythonMut)))
+        .count();
+    let gc_count = validated
+        .args
+        .iter()
+        .filter(|a| matches!(a, ValidatedArg::Token(TokenType::Gc)))
+        .count();
+    if mutable_count > 1 || gc_count > 1 {
+        return Err(syn::Error::new(
+            f.sig.span(),
+            "exclusive context tokens may only appear once",
+        ));
+    }
+    if mutable_count != 0
+        && validated
+            .args
+            .iter()
+            .any(|a| matches!(a, ValidatedArg::Token(TokenType::MicroPython)))
+    {
+        return Err(syn::Error::new(
+            f.sig.span(),
+            "MicroPython and MicroPythonMut cannot be passed together",
+        ));
+    }
 
-    todo!()
+    let mut parsing = Vec::new();
+    let mut bindings = Vec::new();
+    let mut parsed_names = Vec::new();
+    let mut call_args = Vec::new();
+    for (index, arg) in validated.args.into_iter().enumerate() {
+        match arg {
+            ValidatedArg::Token(token) => call_args.push(match token {
+                TokenType::MicroPython => quote!(__mp.borrow()),
+                TokenType::MicroPythonMut => quote!(__mp.reborrow()),
+                TokenType::Gc => quote!(__gc.reborrow()),
+            }),
+            ValidatedArg::StarArgs(name) | ValidatedArg::StarKwargs(name) => {
+                return Err(syn::Error::new(
+                    name.span(),
+                    "variadic Python arguments are not supported yet",
+                ));
+            }
+            ValidatedArg::PythonArg(arg) => {
+                let local = format_ident!("__arg_{index}");
+                let mut ty = *arg.ty;
+                // The trampoline is monomorphic; infer the original function's
+                // lifetime parameters from the actual rooted inputs.
+                struct InferLifetimes<'a>(&'a syn::Generics);
+                impl VisitMut for InferLifetimes<'_> {
+                    fn visit_lifetime_mut(&mut self, lifetime: &mut syn::Lifetime) {
+                        if self
+                            .0
+                            .lifetimes()
+                            .any(|p| p.lifetime.ident == lifetime.ident)
+                        {
+                            *lifetime = syn::Lifetime::new("'_", lifetime.span());
+                        }
+                    }
+                }
+                InferLifetimes(&f.sig.generics).visit_type_mut(&mut ty);
+                let keyword = syn::LitStr::new(&arg.name.unraw().to_string(), arg.name.span());
+                let parser = quote!(<<#ty as #mprs::args::Argument<'_, '_>>::Parser as ::core::default::Default>::default());
+                let lookup = match arg.kind {
+                    ArgKind::Positional => quote!(__reader.next_positional_with(#parser)),
+                    ArgKind::Keyword => {
+                        quote!(__reader.find_keyword_with(#mprs::qstr!(#keyword), #parser))
+                    }
+                    ArgKind::PositionalOrKeyword => quote!({
+                        let positional = __reader.next_positional_with(#parser);
+                        if positional.is_some() {
+                            if __reader.has_keyword(#mprs::qstr!(#keyword)) {
+                                return Err(#mprs::args::ParseError::DuplicateArgument);
+                            }
+                            positional
+                        } else {
+                            __reader.find_keyword_with(#mprs::qstr!(#keyword), #parser)
+                        }
+                    }),
+                };
+                let required = if arg.default_value.is_none() {
+                    quote!(if #local.is_none() { return Err(#mprs::args::ParseError::MissingArgument); })
+                } else {
+                    quote!()
+                };
+                parsing.push(quote! {
+                    let #local = #lookup.transpose()?;
+                    #required
+                });
+                let supplied = if mutable_count == 0 {
+                    quote!(<#ty as #mprs::args::Argument<'_, '_>>::finalize(value, __mp.borrow()))
+                } else {
+                    quote!(value)
+                };
+                let absent = match arg.default_value {
+                    Some(default) => quote!(#default),
+                    None => quote!(::core::unreachable!(
+                        "required argument checked during parsing"
+                    )),
+                };
+                bindings.push(quote! {
+                    let #local: #ty = match #local {
+                        Some(value) => #supplied,
+                        None => #absent,
+                    };
+                });
+                parsed_names.push(local.clone());
+                call_args.push(quote!(#local));
+            }
+        }
+    }
+    let name = &f.sig.ident;
+    let vis = &f.vis;
+    let cfg_attrs: Vec<_> = f
+        .attrs
+        .iter()
+        .filter(|a| a.path().is_ident("cfg") || a.path().is_ident("cfg_attr"))
+        .collect();
+    Ok(quote! {
+        #f
+
+        #(#cfg_attrs)*
+        #[allow(non_snake_case, unused_imports)]
+        #vis mod #name {
+            use super::*;
+
+            pub const FUNCTION: #mprs::function::Function = unsafe {
+                #mprs::function::Function::new(Some(__trampoline))
+            };
+
+            unsafe extern "C" fn __trampoline(
+                __n_args: usize,
+                __n_kw: usize,
+                __args: *const #mprs::sys::mp_obj_t,
+            ) -> #mprs::core::shims::mprs_function_ret_t {
+                // SAFETY: called only by the VM's function-call boundary.
+                let (mut __mp, mut __gc) = unsafe { #mprs::vm::trampoline_tokens() };
+                let __parsed = (|| -> ::core::result::Result<_, #mprs::args::ParseError> {
+                    let __borrow = __mp.borrow();
+                    let __len = __n_args + 2 * __n_kw;
+                    // Even an empty from_raw_parts requires a non-null pointer.
+                    let __slice = if __len == 0 { &[] } else {
+                        unsafe { ::core::slice::from_raw_parts(__args.cast::<#mprs::obj::Obj>(), __len) }
+                    };
+                    let (__pos, __kw) = __slice.split_at(__n_args);
+                    let __args = unsafe {
+                        #mprs::args::Args::new(
+                            #mprs::obj::Bound::from_rooted_slice(__pos, __borrow),
+                            #mprs::obj::Bound::from_rooted_slice(__kw, __borrow),
+                        )
+                    };
+                    let mut __reader = #mprs::args::ArgsReader::new(__args)?;
+                    #(#parsing)*
+                    __reader.finish()?;
+                    Ok((#(#parsed_names,)*))
+                })();
+                let (#(#parsed_names,)*) = match __parsed {
+                    Ok(values) => values,
+                    Err(error) => return #mprs::obj::IntoPyResult::into_py_result(error, __mp, __gc).inner(),
+                };
+                #(#bindings)*
+                let __result = super::#name(#(#call_args),*);
+                #mprs::obj::IntoPyResult::into_py_result(__result, __mp, __gc).inner()
+            }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -252,6 +460,81 @@ mod tests {
             syn::parse_str(rust).unwrap(),
             python.map(|s| syn::parse_str(s).unwrap()),
         )
+    }
+
+    fn expand(rust: &str, options: &str) -> syn::Result<TokenStream> {
+        generate(
+            syn::parse_str(options)?,
+            syn::parse_str(rust)?,
+            quote!(::micropython_rs),
+        )
+    }
+
+    #[test]
+    fn parses_attribute_options() {
+        assert!(
+            syn::parse_str::<PyfunctionArgs>("")
+                .unwrap()
+                .signature
+                .is_none()
+        );
+        assert!(
+            syn::parse_str::<PyfunctionArgs>("signature = (a, /),")
+                .unwrap()
+                .signature
+                .is_some()
+        );
+        for options in [
+            "signature = (), signature = ()",
+            "name = foo",
+            "signature",
+            "signature = (a: i32)",
+        ] {
+            assert!(
+                syn::parse_str::<PyfunctionArgs>(options).is_err(),
+                "{options}"
+            );
+        }
+    }
+
+    #[test]
+    fn generates_valid_rust_and_selects_finalization_mode() {
+        let shared = expand(
+            "pub fn f(value: Bound<'_, '_, Dict>) -> bool { true }",
+            "signature = (value, /)",
+        )
+        .unwrap();
+        syn::parse2::<syn::File>(shared.clone()).unwrap();
+        assert!(shared.to_string().contains("finalize"));
+        let mutable = expand(
+            "fn f(mp: MicroPythonMut<'_>, value: Rooted<'_, Dict>) {}",
+            "signature = (value, /)",
+        )
+        .unwrap();
+        syn::parse2::<syn::File>(mutable.clone()).unwrap();
+        assert!(!mutable.to_string().contains("finalize"));
+        let empty = expand("fn f() {}", "").unwrap();
+        syn::parse2::<syn::File>(empty).unwrap();
+    }
+
+    #[test]
+    fn rejects_unsupported_functions_and_token_aliasing() {
+        for rust in [
+            "unsafe fn f() {}",
+            "async fn f() {}",
+            "extern \"C\" fn f() {}",
+            "fn f<T>() {}",
+            "fn f<const N: usize>() {}",
+            "fn f(a: MicroPython<'_>, b: MicroPythonMut<'_>) {}",
+            "fn f(a: MicroPythonMut<'_>, b: MicroPythonMut<'_>) {}",
+            "fn f(a: Gc<'_>, b: Gc<'_>) {}",
+        ] {
+            assert!(expand(rust, "").is_err(), "{rust}");
+        }
+        for options in ["signature = (*a)", "signature = (**a)"] {
+            let err = expand("fn f(a: Args) {}", options).unwrap_err();
+            assert!(err.to_string().contains("not supported yet"));
+        }
     }
 
     #[test]

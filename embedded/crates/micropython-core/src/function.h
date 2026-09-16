@@ -19,4 +19,7 @@ typedef struct {
 
 extern const mp_obj_type_t mprs_type_function;
 
+// Construct an argument exception, catching allocation failures locally.
+mprs_function_ret_t mprs_function_argument_error(unsigned int kind);
+
 #endif

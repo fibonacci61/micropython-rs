@@ -59,6 +59,27 @@ pub struct MicroPythonMut<'vm> {
     not_send: PhantomData<*mut ()>,
 }
 
+/// Acquire tokens at a MicroPython-to-Rust trampoline boundary.
+///
+/// # Safety
+/// The VM must be initialized on this thread. The caller must have exclusive
+/// access to it and permission to collect garbage for the returned lifetimes.
+/// Neither token may escape the callback. Do not call this to bypass an
+/// existing token borrow.
+#[doc(hidden)]
+pub unsafe fn trampoline_tokens<'vm>() -> (MicroPythonMut<'vm>, Gc<'vm>) {
+    (
+        MicroPythonMut {
+            vm: PhantomData,
+            not_send: PhantomData,
+        },
+        Gc {
+            vm: PhantomData,
+            not_send: PhantomData,
+        },
+    )
+}
+
 impl<'vm> MicroPythonMut<'vm> {
     pub fn reborrow(&mut self) -> MicroPythonMut<'_> {
         MicroPythonMut {

@@ -1,15 +1,41 @@
-use std::marker::PhantomData;
+#![no_std]
+
+use core::marker::PhantomData;
 
 use micropython_core::{
-    obj::{Bound, Class, Obj, Rooted},
+    obj::{Bound, Class, IntoPyResult, Obj, PyResult, Rooted},
     qstr::Qstr,
-    vm::MicroPython,
+    shims,
+    vm::{Gc, MicroPython, MicroPythonMut},
 };
 
+#[derive(Clone, Copy)]
 pub enum ParseError {
     TypeError { expected: Qstr, found: Qstr },
     // TODO: add message
     ValueError {},
+    MissingArgument,
+    DuplicateArgument,
+    ExcessPositional,
+    UnexpectedKeyword,
+}
+
+impl IntoPyResult for ParseError {
+    fn into_py_result(self, _mp: MicroPythonMut, _gc: Gc) -> PyResult {
+        let kind = match self {
+            Self::TypeError { .. } => 0,
+            Self::ValueError { .. } => 1,
+            Self::MissingArgument => 2,
+            Self::DuplicateArgument => 3,
+            Self::ExcessPositional => 4,
+            Self::UnexpectedKeyword => 5,
+        };
+        // The C helper catches all NLR, including allocation failures.
+        unsafe {
+            let ret = shims::mprs_function_argument_error(kind);
+            PyResult::new(ret.ok, ret.value)
+        }
+    }
 }
 
 pub trait Parser {
@@ -67,6 +93,14 @@ impl<'r, 'mp, T: Class> Argument<'r, 'mp> for Bound<'r, 'mp, T> {
     }
 }
 
+impl<'r, 'mp, T: Class> Argument<'r, 'mp> for Rooted<'r, T> {
+    type Parser = ClassParser<T>;
+
+    fn finalize(value: Rooted<'r, T>, _mp: MicroPython<'mp>) -> Self {
+        value
+    }
+}
+
 pub struct Args<'r, 'mp> {
     pos_args: Bound<'r, 'mp, [Obj]>,
     kw_args: Bound<'r, 'mp, [Obj]>,
@@ -75,6 +109,7 @@ pub struct Args<'r, 'mp> {
 pub struct ArgsReader<'r, 'mp> {
     args: Args<'r, 'mp>,
     i_pos: usize,
+    keywords_used: usize,
 }
 
 pub struct KwArg<'r, 'mp> {
@@ -92,7 +127,7 @@ impl<'r, 'mp> Args<'r, 'mp> {
     }
 
     pub fn n_kw(&self) -> usize {
-        self.kw_args.len() * 2
+        self.kw_args.len() / 2
     }
 
     pub fn nth_pos(&self, n: usize) -> Option<Bound<'r, 'mp, Obj>> {
@@ -115,6 +150,46 @@ impl<'r, 'mp> Args<'r, 'mp> {
 }
 
 impl<'r, 'mp> ArgsReader<'r, 'mp> {
+    pub fn new(args: Args<'r, 'mp>) -> Result<Self, ParseError> {
+        if args.kw_args.len() % 2 != 0 {
+            return Err(ParseError::ValueError {});
+        }
+        // No allocation is necessary for the small keyword lists typical here.
+        for i in 0..args.n_kw() {
+            let name = args
+                .kw_args
+                .get(2 * i)
+                .unwrap()
+                .qstr()
+                .ok_or(ParseError::ValueError {})?;
+            for j in 0..i {
+                if args.kw_args.get(2 * j).unwrap().qstr() == Some(name) {
+                    return Err(ParseError::DuplicateArgument);
+                }
+            }
+        }
+        Ok(Self {
+            args,
+            i_pos: 0,
+            keywords_used: 0,
+        })
+    }
+
+    pub fn has_keyword(&self, keyword: Qstr) -> bool {
+        self.args.find_keyword(keyword).is_some()
+    }
+
+    /// Check for arguments not consumed by the generated binder.
+    pub fn finish(self) -> Result<(), ParseError> {
+        if self.i_pos != self.args.n_arg() {
+            return Err(ParseError::ExcessPositional);
+        }
+        if self.keywords_used != self.args.n_kw() {
+            return Err(ParseError::UnexpectedKeyword);
+        }
+        Ok(())
+    }
+
     pub fn next_positional_with<T, P>(&mut self, parser: P) -> Option<Result<T, ParseError>>
     where
         P: Parser<Output<'r> = T>,
@@ -125,6 +200,8 @@ impl<'r, 'mp> ArgsReader<'r, 'mp> {
             .inspect(|_| self.i_pos += 1)
     }
 
+    /// Look up and count a keyword as consumed. The binder must call this at
+    /// most once per keyword name; `finish` checks the resulting count.
     pub fn find_keyword_with<T, P>(
         &mut self,
         keyword: Qstr,
@@ -136,5 +213,6 @@ impl<'r, 'mp> ArgsReader<'r, 'mp> {
         self.args
             .find_keyword(keyword)
             .map(|value| parser.parse(value.as_rooted(), value.mp()))
+            .inspect(|_| self.keywords_used += 1)
     }
 }

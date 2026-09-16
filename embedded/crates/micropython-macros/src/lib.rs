@@ -39,10 +39,27 @@ pub fn qstr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
+/// Expose a Rust function to MicroPython as `function_name::FUNCTION`, while
+/// retaining the original Rust function.
+///
+/// `signature = (a, /, b = expression, *, c)` controls positional-only,
+/// positional-or-keyword, defaulted, and keyword-only parameters. Without a
+/// signature all non-context parameters are required positional-or-keyword
+/// arguments. `*args` and `**kwargs` are not supported yet.
+///
+/// `MicroPython`, `MicroPythonMut`, and `Gc` parameters are injected and must
+/// not appear in the Python signature. With `MicroPythonMut`, parsed values
+/// are passed directly; otherwise `Argument::finalize` binds each supplied
+/// argument. Defaults are Rust expressions of the declared parameter type,
+/// evaluated only when the argument is absent. Returns use `IntoPyResult`.
 #[proc_macro_attribute]
 pub fn pyfunction(
     attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    item
+    let args = syn::parse_macro_input!(attr as pyfunction::PyfunctionArgs);
+    let function = syn::parse_macro_input!(item as syn::ItemFn);
+    pyfunction::generate(args, function, micropython_rs_path())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
 }
