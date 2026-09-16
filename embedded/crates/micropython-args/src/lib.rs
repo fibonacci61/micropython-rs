@@ -1,31 +1,81 @@
+use std::marker::PhantomData;
+
 use micropython_rs::{
-    obj::{Bound, Obj},
+    obj::{Bound, Class, Obj, Rooted},
     qstr::Qstr,
+    vm::MicroPython,
 };
 
-pub trait Parser<'b> {
-    type Output;
-
-    fn parse(&self, value: Bound<'b, Obj>) -> Result<Self::Output, ()>;
+pub enum ParseError {
+    TypeError { expected: Qstr, found: Qstr },
+    // TODO: add message
+    ValueError {},
 }
 
-pub struct Args<'b> {
-    pos_args: Bound<'b, [Obj]>,
-    kw_args: Bound<'b, [Obj]>,
+pub trait Parser {
+    type Output<'r>;
+
+    fn parse<'r>(
+        &self,
+        value: Rooted<'r, Obj>,
+        mp: MicroPython,
+    ) -> Result<Self::Output<'r>, ParseError>;
 }
 
-pub struct ArgsReader<'b> {
-    args: Args<'b>,
+pub trait Argument<'r, 'mp> {
+    type Parser: Parser;
+
+    fn finalize(value: <Self::Parser as Parser>::Output<'r>, mp: MicroPython<'mp>) -> Self;
+}
+
+pub struct ClassParser<T: Class> {
+    phantom: PhantomData<T>,
+}
+
+impl<T: Class> Parser for ClassParser<T> {
+    type Output<'r> = Rooted<'r, T>;
+
+    fn parse<'r>(
+        &self,
+        value: Rooted<'r, Obj>,
+        mp: MicroPython,
+    ) -> Result<Self::Output<'r>, ParseError> {
+        Ok(value
+            .bind(mp)
+            .try_downcast::<T>()
+            .ok_or(ParseError::TypeError {
+                expected: T::TYPE_OBJECT.name(),
+                found: value.bind(mp).ty().name(),
+            })?
+            .as_rooted())
+    }
+}
+
+impl<'r, 'mp, T: Class> Argument<'r, 'mp> for Bound<'r, 'mp, T> {
+    type Parser = ClassParser<T>;
+
+    fn finalize(value: <Self::Parser as Parser>::Output<'r>, mp: MicroPython<'mp>) -> Self {
+        value.bind(mp)
+    }
+}
+
+pub struct Args<'r, 'mp> {
+    pos_args: Bound<'r, 'mp, [Obj]>,
+    kw_args: Bound<'r, 'mp, [Obj]>,
+}
+
+pub struct ArgsReader<'r, 'mp> {
+    args: Args<'r, 'mp>,
     i_pos: usize,
 }
 
-pub struct KwArg<'b> {
+pub struct KwArg<'r, 'mp> {
     pub name: Qstr,
-    pub value: Bound<'b, Obj>,
+    pub value: Bound<'r, 'mp, Obj>,
 }
 
-impl<'b> Args<'b> {
-    pub const fn new(pos_args: Bound<'b, [Obj]>, kw_args: Bound<'b, [Obj]>) -> Self {
+impl<'r, 'mp> Args<'r, 'mp> {
+    pub const fn new(pos_args: Bound<'r, 'mp, [Obj]>, kw_args: Bound<'r, 'mp, [Obj]>) -> Self {
         Self { pos_args, kw_args }
     }
 
@@ -37,11 +87,11 @@ impl<'b> Args<'b> {
         self.kw_args.len() * 2
     }
 
-    pub fn nth_pos(&self, n: usize) -> Option<Bound<'b, Obj>> {
+    pub fn nth_pos(&self, n: usize) -> Option<Bound<'r, 'mp, Obj>> {
         Bound::get(self.pos_args, n)
     }
 
-    pub fn find_keyword(&self, keyword: Qstr) -> Option<Bound<'b, Obj>> {
+    pub fn find_keyword(&self, keyword: Qstr) -> Option<Bound<'r, 'mp, Obj>> {
         // naive linear search, but since most functions have few keyword args this is fine
         // TODO: use hash map once keyword count exceeds a threshold
         for kwarg in Bound::chunks_exact(&self.kw_args, 2) {
@@ -56,25 +106,27 @@ impl<'b> Args<'b> {
     }
 }
 
-impl<'b> ArgsReader<'b> {
-    pub fn next_positional_with<T, P>(&mut self, parser: P) -> Result<T, ()>
+impl<'r, 'mp> ArgsReader<'r, 'mp> {
+    pub fn next_positional_with<T, P>(&mut self, parser: P) -> Option<Result<T, ParseError>>
     where
-        P: Parser<'b, Output = T>,
+        P: Parser<Output<'r> = T>,
     {
         self.args
             .nth_pos(self.i_pos)
-            .ok_or(())
-            .and_then(|value| parser.parse(value))
+            .map(|value| parser.parse(value.as_rooted(), value.mp()))
             .inspect(|_| self.i_pos += 1)
     }
 
-    pub fn find_keyword_with<T, P>(&mut self, keyword: Qstr, parser: P) -> Result<T, ()>
+    pub fn find_keyword_with<T, P>(
+        &mut self,
+        keyword: Qstr,
+        parser: P,
+    ) -> Option<Result<T, ParseError>>
     where
-        P: Parser<'b, Output = T>,
+        P: Parser<Output<'r> = T>,
     {
         self.args
             .find_keyword(keyword)
-            .ok_or(())
-            .and_then(|value| parser.parse(value))
+            .map(|value| parser.parse(value.as_rooted(), value.mp()))
     }
 }

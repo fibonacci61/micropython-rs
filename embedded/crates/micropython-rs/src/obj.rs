@@ -44,26 +44,26 @@ pub struct Restricted<'gc> {
 
 pub struct Rooted<'r, T: ?Sized> {
     inner: NonNull<T>,
-    root: PhantomData<&'r Obj>,
+    root: PhantomData<&'r T>,
 }
 
-pub struct Bound<'b, T: ?Sized> {
+pub struct Bound<'r, 'mp, T: ?Sized> {
     inner: NonNull<T>,
-    mp: MicroPython<'b>,
-    reference: PhantomData<&'b T>,
+    root: PhantomData<&'r T>,
+    mp: MicroPython<'mp>,
 }
 
-impl<T: ?Sized> Clone for Bound<'_, T> {
+impl<T: ?Sized> Clone for Bound<'_, '_, T> {
     fn clone(&self) -> Self {
         Bound {
             inner: self.inner,
+            root: self.root,
             mp: self.mp,
-            reference: self.reference,
         }
     }
 }
 
-impl<T: ?Sized> Copy for Bound<'_, T> {}
+impl<T: ?Sized> Copy for Bound<'_, '_, T> {}
 
 /// A Rust struct representing pointer objects of a particular MicroPython type.
 ///
@@ -79,13 +79,15 @@ impl<T: ?Sized> Copy for Bound<'_, T> {}
 /// - Such an object can be borrowed as `&Self` while it is kept alive and
 ///   [`MicroPython`] is shared-borrowed. Its contents must respect Rust's rules
 ///   for shared references throughout that borrow.
-pub unsafe trait Class: Sized {
+pub unsafe trait Class: Sized + 'static {
     /// The type object whose pointer identifies instances of `Self`.
     const TYPE_OBJECT: &'static Type;
 }
 
 pub trait RootProject: Sized {
-    type Projection<'r>;
+    type Projection<'r>
+    where
+        Self: 'r;
 
     fn project<'r>(root: Rooted<'r, Self>) -> Self::Projection<'r>;
 }
@@ -160,18 +162,14 @@ impl Obj {
         }
     }
 
-    pub unsafe fn assume_bound<'obj, 'mp, 'bound, T>(
+    pub unsafe fn assume_bound<'obj, 'mp, T>(
         &'obj self,
         mp: MicroPython<'mp>,
-    ) -> Bound<'bound, T>
-    where
-        'obj: 'bound,
-        'mp: 'bound,
-    {
+    ) -> Bound<'obj, 'mp, T> {
         Bound {
             inner: unsafe { NonNull::new_unchecked(tagging::ptr_value(self.inner) as *mut _) },
+            root: PhantomData,
             mp,
-            reference: PhantomData,
         }
     }
 
@@ -214,7 +212,7 @@ impl<'gc> Restricted<'gc> {
         Obj { inner: self.inner }
     }
 
-    pub fn try_bind<'bound, T>(&'bound self, mp: MicroPython<'bound>) -> Option<Bound<'bound, T>>
+    pub fn try_bind<'obj, 'mp, T>(&'obj self, mp: MicroPython<'mp>) -> Option<Bound<'obj, 'mp, T>>
     where
         T: Class,
     {
@@ -228,15 +226,15 @@ impl<'gc> Restricted<'gc> {
         if type_match {
             Some(Bound {
                 inner: NonNull::new(ptr)?.cast(),
+                root: PhantomData,
                 mp,
-                reference: PhantomData,
             })
         } else {
             None
         }
     }
 
-    pub fn bind<'bound, T>(&'bound self, mp: MicroPython<'bound>) -> Bound<'bound, T>
+    pub fn bind<'obj, 'mp, T>(&'obj self, mp: MicroPython<'mp>) -> Bound<'obj, 'mp, T>
     where
         T: Class,
     {
@@ -265,22 +263,29 @@ impl<'r, T> Rooted<'r, T> {
         })
     }
 
-    pub fn bind<'bound>(&'bound self, mp: MicroPython<'bound>) -> Bound<'bound, T> {
+    pub fn bind<'mp>(&self, mp: MicroPython<'mp>) -> Bound<'r, 'mp, T> {
         Bound {
             inner: self.inner,
+            root: PhantomData,
             mp,
-            reference: PhantomData,
         }
     }
 }
 
-impl<'b, T> Bound<'b, T> {
-    pub const fn mp(self) -> MicroPython<'b> {
+impl<'r, 'mp, T> Bound<'r, 'mp, T> {
+    pub const fn as_rooted(self) -> Rooted<'r, T> {
+        Rooted {
+            inner: self.inner,
+            root: PhantomData,
+        }
+    }
+
+    pub const fn mp(self) -> MicroPython<'mp> {
         self.mp
     }
 }
 
-impl<'b, T: ?Sized> Deref for Bound<'b, T> {
+impl<T: ?Sized> Deref for Bound<'_, '_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -288,12 +293,19 @@ impl<'b, T: ?Sized> Deref for Bound<'b, T> {
     }
 }
 
-impl<'b> Bound<'b, Obj> {
-    pub fn ty(self) -> &'b Type {
-        unsafe { Type::from_raw(mp_obj_get_type(self.deref().inner)) }
+impl<'r, 'mp> Bound<'r, 'mp, Obj> {
+    pub fn ty(self) -> Bound<'r, 'mp, Type> {
+        Bound {
+            // SAFETY: `Obj` is a valid object
+            inner: unsafe {
+                NonNull::new_unchecked(mp_obj_get_type(self.deref().inner) as *mut Type)
+            },
+            mp: self.mp,
+            root: PhantomData,
+        }
     }
 
-    pub fn try_downcast<T>(self) -> Option<Bound<'b, T>>
+    pub fn try_downcast<T>(self) -> Option<Bound<'r, 'mp, T>>
     where
         T: Class,
     {
@@ -307,15 +319,15 @@ impl<'b> Bound<'b, Obj> {
         if type_match {
             Some(Bound {
                 inner: NonNull::new(obj)?.cast(),
+                root: PhantomData,
                 mp: self.mp,
-                reference: PhantomData,
             })
         } else {
             None
         }
     }
 
-    pub fn downcast<T>(self) -> Bound<'b, T>
+    pub fn downcast<T>(self) -> Bound<'r, 'mp, T>
     where
         T: Class,
     {
@@ -323,29 +335,29 @@ impl<'b> Bound<'b, Obj> {
     }
 }
 
-impl<'b, T> Bound<'b, [T]> {
-    pub fn get(self, index: usize) -> Option<Bound<'b, T>> {
+impl<'r, 'mp, T> Bound<'r, 'mp, [T]> {
+    pub fn get(self, index: usize) -> Option<Bound<'r, 'mp, T>> {
         let slice = self.deref();
         slice.get(index).map(|elem| Bound {
             inner: NonNull::from_ref(elem),
+            root: PhantomData,
             mp: self.mp,
-            reference: PhantomData,
         })
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Bound<'b, T>> {
+    pub fn iter(&self) -> impl Iterator<Item = Bound<'r, 'mp, T>> {
         self.deref().iter().map(|elem| Bound {
             inner: NonNull::from_ref(elem),
+            root: PhantomData,
             mp: self.mp,
-            reference: PhantomData,
         })
     }
 
-    pub fn chunks_exact(&self, chunk_size: usize) -> impl Iterator<Item = Bound<'b, [T]>> {
+    pub fn chunks_exact(&self, chunk_size: usize) -> impl Iterator<Item = Bound<'r, 'mp, [T]>> {
         self.deref().chunks_exact(chunk_size).map(|elem| Bound {
             inner: NonNull::from_ref(elem),
+            root: PhantomData,
             mp: self.mp,
-            reference: PhantomData,
         })
     }
 }
@@ -356,6 +368,7 @@ pub struct PyResult {
 }
 
 impl PyResult {
+    // SAFETY: mp_obj_t must be a valid object now, non dangling if it is a pointer
     pub const unsafe fn new(ok: bool, value: mp_obj_t) -> Self {
         Self {
             inner: mprs_function_ret_t { ok, value },
