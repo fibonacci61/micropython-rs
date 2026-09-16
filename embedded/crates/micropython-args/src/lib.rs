@@ -23,13 +23,21 @@ pub trait Parser {
 }
 
 pub trait Argument<'r, 'mp> {
-    type Parser: Parser;
+    type Parser: Parser + Default;
 
     fn finalize(value: <Self::Parser as Parser>::Output<'r>, mp: MicroPython<'mp>) -> Self;
 }
 
 pub struct ClassParser<T: Class> {
     phantom: PhantomData<T>,
+}
+
+impl<T: Class> Default for ClassParser<T> {
+    fn default() -> Self {
+        Self {
+            phantom: PhantomData,
+        }
+    }
 }
 
 impl<T: Class> Parser for ClassParser<T> {
