@@ -15,7 +15,7 @@ mod direct_ptr;
 #[cfg_attr(micropython = "MICROPY_OBJ_REPR_B", path = "obj/repr_b.rs")]
 #[cfg_attr(micropython = "MICROPY_OBJ_REPR_C", path = "obj/repr_c.rs")]
 #[cfg_attr(micropython = "MICROPY_OBJ_REPR_D", path = "obj/repr_d.rs")]
-mod tagging;
+pub(crate) mod tagging;
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -270,6 +270,10 @@ impl<'r, T> Rooted<'r, T> {
             root: PhantomData,
             mp,
         }
+    }
+
+    pub fn as_non_null(&self) -> NonNull<T> {
+        self.inner
     }
 }
 
