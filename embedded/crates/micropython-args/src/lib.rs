@@ -3,6 +3,7 @@
 use core::marker::PhantomData;
 
 use micropython_core::{
+    except::{TYPE_ERROR_TYPE, VALUE_ERROR_TYPE, new_exception_msg},
     obj::{Bound, Class, IntoPyResult, Obj, PyResult, Rooted},
     qstr::Qstr,
     shims,
@@ -21,20 +22,17 @@ pub enum ParseError {
 }
 
 impl IntoPyResult for ParseError {
-    fn into_py_result(self, _mp: MicroPythonMut, _gc: Gc) -> PyResult {
-        let kind = match self {
-            Self::TypeError { .. } => 0,
-            Self::ValueError { .. } => 1,
-            Self::MissingArgument => 2,
-            Self::DuplicateArgument => 3,
-            Self::ExcessPositional => 4,
-            Self::UnexpectedKeyword => 5,
+    fn into_py_result(self, mp: MicroPythonMut, gc: Gc) -> PyResult {
+        let (ty, msg) = match self {
+            Self::TypeError { .. } => (TYPE_ERROR_TYPE, "argument has incorrect type"),
+            Self::ValueError { .. } => (VALUE_ERROR_TYPE, "invalid argument value"),
+            Self::MissingArgument => (TYPE_ERROR_TYPE, "missing required argument"),
+            Self::DuplicateArgument => (TYPE_ERROR_TYPE, "multiple values for argument"),
+            Self::ExcessPositional => (TYPE_ERROR_TYPE, "too many positional arguments"),
+            Self::UnexpectedKeyword => (TYPE_ERROR_TYPE, "unexpected keyword argument"),
         };
-        // The C helper catches all NLR, including allocation failures.
-        unsafe {
-            let ret = shims::mprs_function_argument_error(kind);
-            PyResult::new(ret.ok, ret.value)
-        }
+        let exception = new_exception_msg(mp, gc, ty, todo!());
+        unsafe { PyResult::new(false, exception.as_obj().into_raw()) }
     }
 }
 
